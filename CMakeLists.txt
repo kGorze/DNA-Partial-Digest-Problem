@@ -17,6 +17,8 @@ add_executable(zadanie_4
         src/test_framework.cpp
         include/map_solver.h
         src/map_solver.cpp
+        include/benchmark.h
+        src/benchmark.cpp
 )
 
 # Set output directories

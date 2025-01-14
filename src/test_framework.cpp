@@ -260,7 +260,8 @@ void TestFramework::runInteractiveMode() {
         std::cout << "3. Generate new random instances\n";
         std::cout << "4. Verify all instances\n";
         std::cout << "5. Generate advanced instances\n";
-        std::cout << "6. Exit\n";
+        std::cout << "6. Run benchmark\n";
+        std::cout << "7. Exit\n";
         
         int choice;
         std::cin >> choice;
@@ -355,6 +356,9 @@ void TestFramework::runInteractiveMode() {
                 break;
             }
         case 6:
+            benchmark.runBenchmark();
+            break;
+        case 7:
             return;
         default:
             std::cout << "Invalid choice." << std::endl;

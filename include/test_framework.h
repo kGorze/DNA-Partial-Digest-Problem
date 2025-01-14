@@ -9,6 +9,7 @@
 #include <string>
 #include <chrono>
 #include "instance_generator.h"
+#include "benchmark.h"
 
 class TestFramework {
 private:
@@ -18,6 +19,9 @@ private:
     static const int RANDOM_INSTANCES_COUNT;
     static const int MIN_CUTS = 3;  // Minimalna sensowna liczba cięć
     InstanceGenerator& generator;
+    Benchmark benchmark;
+
+
     
     // Helper methods
     bool verifyInputSize(const std::vector<int>& distances, int expectedSize);
