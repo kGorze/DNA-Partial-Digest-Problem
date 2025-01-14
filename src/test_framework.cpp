@@ -1,8 +1,8 @@
 //
 // Created by konrad_guest on 14/01/2025.
 //
-
 #include "../include/test_framework.h"
+#include "../include/map_solver.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -13,6 +13,9 @@
 namespace fs = std::filesystem;
 
 const std::chrono::hours TestFramework::MAX_EXECUTION_TIME(1);
+const std::string TestFramework::INSTANCES_DIR = "instances";
+const std::string TestFramework::DATA_DIR = "data";
+const int TestFramework::RANDOM_INSTANCES_COUNT = 10;
 
 TestFramework::TestFramework(InstanceGenerator& gen) : generator(gen) {}
 
@@ -77,50 +80,82 @@ std::vector<std::vector<int>> TestFramework::generateSortedVariants(const std::v
     return variants;
 }
 
-bool TestFramework::testRandomInstances(int numTests, int minCuts, int maxCuts) {
-    bool allTestsPassed = true;
-    std::cout << "Generating and testing " << numTests << " random instances...\n";
-    
-    for (int i = 0; i < numTests; i++) {
-        int cuts = minCuts + (rand() % (maxCuts - minCuts + 1));
-        std::string filename = "random_test_" + std::to_string(i) + ".txt";
-        
-        std::cout << "Testing instance " << (i + 1) << "/" << numTests 
-                 << " (cuts=" << cuts << ")... ";
-        
-        if (!generator.generateInstance(cuts, filename)) {
-            std::cout << "Failed to generate instance " << filename << std::endl;
-            allTestsPassed = false;
-            continue;
+void TestFramework::clearInstancesDirectory() {
+    if (fs::exists(INSTANCES_DIR)) {
+        for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+            fs::remove(entry.path());
         }
+    } else {
+        fs::create_directory(INSTANCES_DIR);
+    }
+}
+
+void TestFramework::generateRandomInstances() {
+    clearInstancesDirectory();
+    
+    for (int i = 0; i < RANDOM_INSTANCES_COUNT; i++) {
+        int cuts = 3 + (i % 5);  // Generate instances with 3-7 cuts
+        std::string filename = "instance_" + std::to_string(i + 1) + ".txt";
+        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
         
-        auto distances = generator.loadInstance(filename);
-        auto result = verifyInstance(distances);
-        
-        if (!result.isValid) {
-            std::cout << "FAILED: " << result.message << std::endl;
-            allTestsPassed = false;
-        } else {
-            std::cout << "PASSED" << std::endl;
+        if (!generator.generateInstance(cuts, fullPath)) {
+            std::cout << "Failed to generate instance " << (i + 1) << std::endl;
         }
     }
     
-    return allTestsPassed;
+    std::cout << "Generated " << RANDOM_INSTANCES_COUNT << " random instances in the 'instances' directory." << std::endl;
+}
+
+std::string TestFramework::getFullPath(const std::string& directory, const std::string& filename) {
+    return (fs::path(directory) / filename).string();
+}
+
+void TestFramework::listAvailableInstances(const std::string& directory) {
+    std::cout << "Available instances in " << directory << ":" << std::endl;
+    for (const auto& entry : fs::directory_iterator(directory)) {
+        if (entry.path().extension() == ".txt") {
+            std::cout << "  " << entry.path().filename().string() << std::endl;
+        }
+    }
+}
+
+bool TestFramework::testRandomInstances() {
+    if (!fs::exists(INSTANCES_DIR) || fs::is_empty(INSTANCES_DIR)) {
+        std::cout << "No instances found in the 'instances' directory." << std::endl;
+        return false;
+    }
+    
+    std::cout << "Testing all instances in the 'instances' directory...\n" << std::endl;
+    
+    for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+        if (entry.path().extension() == ".txt") {
+            std::vector<int> distances = generator.loadInstance(entry.path().string());
+            if (distances.empty()) {
+                std::cout << entry.path().filename().string() << ": Failed to load distances" << std::endl;
+                continue;
+            }
+            int totalLength = *std::max_element(distances.begin(), distances.end());
+            
+            MapSolver solver(distances, totalLength);
+            bool solved = solver.solve();
+            
+        }
+        std::cout<< "\n\n";
+    }
+    return true;
 }
 
 bool TestFramework::testPDPInstances(const std::string& dataDirectory) {
     bool allTestsPassed = true;
     
-    // Check if directory exists
     if (!fs::exists(dataDirectory)) {
-        std::cout << "Error: Directory '" << dataDirectory << "' does not exist.\n";
-        std::cout << "Current path: " << fs::current_path() << "\n";
-        std::cout << "Please ensure the 'data' directory containing PDP instances is present.\n";
+        std::cout << "Error: Directory '" << dataDirectory << "' does not exist." << std::endl;
+        std::cout << "Current path: " << fs::current_path() << std::endl;
+        std::cout << "Please ensure the 'data' directory containing PDP instances is present." << std::endl;
         return false;
     }
     
     try {
-        // Count total files first
         int totalFiles = 0;
         for (const auto& entry : fs::directory_iterator(dataDirectory)) {
             if (entry.path().extension() == ".txt") {
@@ -128,7 +163,7 @@ bool TestFramework::testPDPInstances(const std::string& dataDirectory) {
             }
         }
         
-        std::cout << "Found " << totalFiles << " PDP instances to test.\n";
+        std::cout << "Found " << totalFiles << " PDP instances to test." << std::endl;
         int currentFile = 0;
         
         for (const auto& entry : fs::directory_iterator(dataDirectory)) {
@@ -187,6 +222,189 @@ bool TestFramework::analyzeSortingImpact(const std::string& instanceFile) {
         std::cout << "ERROR: " << e.what() << std::endl;
         return false;
     }
+}
+
+void TestFramework::solveSpecificInstance(const std::string& directory, const std::string& filename) {
+    std::string fullPath = getFullPath(directory, filename);
+    std::vector<int> distances = generator.loadInstance(fullPath);
+    
+    if (distances.empty()) {
+        std::cout << "Failed to load instance." << std::endl;
+        return;
+    }
+    
+    int cuts = calculateRequiredCuts(distances.size());
+    int totalLength = *std::max_element(distances.begin(), distances.end());
+    
+    std::cout << "Solving instance " << filename << " (cuts: " << cuts << ")..." << std::endl;
+    MapSolver solver(distances, totalLength);
+    
+    if (solver.solve()) {
+        std::cout << "Solution found!" << std::endl;
+        const auto& solution = solver.getSolution();
+        std::cout << "Solution: ";
+        for (int site : solution) {
+            std::cout << site << " ";
+        }
+        std::cout << "\n";
+    } else {
+        std::cout << "No solution found." << std::endl;
+    }
+}
+
+void TestFramework::runInteractiveMode() {
+    while (true) {
+        std::cout << "\nSelect operation mode:\n";
+        std::cout << "1. Test all instances from 'instances' directory\n";
+        std::cout << "2. Solve specific instance\n";
+        std::cout << "3. Generate new random instances\n";
+        std::cout << "4. Verify all instances\n";
+        std::cout << "5. Generate advanced instances\n";
+        std::cout << "6. Exit\n";
+        
+        int choice;
+        std::cin >> choice;
+        
+        switch (choice) {
+        case 1:
+            testRandomInstances();
+            break;
+        case 2: {
+                std::cout << "Select directory:\n";
+                std::cout << "1. instances\n";
+                std::cout << "2. data\n";
+                
+                int dirChoice;
+                std::cin >> dirChoice;
+                
+                std::string directory = (dirChoice == 1) ? INSTANCES_DIR : DATA_DIR;
+                
+                if (fs::exists(directory)) {
+                    listAvailableInstances(directory);
+                    
+                    std::string filename;
+                    std::cout << "Enter instance filename: ";
+                    std::cin >> filename;
+                    
+                    solveSpecificInstance(directory, filename);
+                } else {
+                    std::cout << "Selected directory does not exist." << std::endl;
+                }
+                break;
+        }
+        case 3:
+            generateRandomInstances();
+            break;
+        case 4:
+            verifyAllInstances();
+            break;
+        case 5:
+            generateAdvancedInstances();
+            break;
+        case 6:
+            return;
+        default:
+            std::cout << "Invalid choice." << std::endl;
+        }
+    }
+}
+
+bool TestFramework::verifyInstancesInDirectory(const std::string& directory) {
+    if (!fs::exists(directory)) {
+        std::cout << "Directory '" << directory << "' does not exist." << std::endl;
+        return false;
+    }
+
+    bool allValid = true;
+    int totalFiles = 0;
+    int validFiles = 0;
+
+    for (const auto& entry : fs::directory_iterator(directory)) {
+        if (entry.path().extension() == ".txt") {
+            totalFiles++;
+            std::cout << "Verifying " << entry.path().filename().string() << "... ";
+            
+            try {
+                std::vector<int> distances = generator.loadInstance(entry.path().string());
+                if (generator.verifyInstance(entry.path().filename().string())) {
+                    std::cout << "VALID" << std::endl;
+                    validFiles++;
+                } else {
+                    std::cout << "INVALID" << std::endl;
+                    allValid = false;
+                }
+            } catch (const std::exception& e) {
+                std::cout << "ERROR: " << e.what() << std::endl;
+                allValid = false;
+            }
+        }
+    }
+
+    std::cout << "\nSummary for " << directory << ":" << std::endl;
+    std::cout << "Total files: " << totalFiles << std::endl;
+    std::cout << "Valid files: " << validFiles << std::endl;
+    std::cout << "Invalid files: " << (totalFiles - validFiles) << std::endl;
+
+    return allValid;
+}
+
+bool TestFramework::verifyAllInstances() {
+    std::cout << "Verifying all instances in both directories...\n\n";
+    
+    bool instancesValid = verifyInstancesInDirectory(INSTANCES_DIR);
+    bool dataValid = verifyInstancesInDirectory(DATA_DIR);
+    
+    std::cout << "\nOverall verification result: " 
+              << (instancesValid && dataValid ? "ALL VALID" : "SOME INVALID") 
+              << std::endl;
+              
+    return instancesValid && dataValid;
+}
+
+void TestFramework::generateAdvancedInstances() {
+    std::cout << "Enter maximum number of cuts (minimum is " << MIN_CUTS << "): ";
+    int maxCuts;
+    std::cin >> maxCuts;
+
+    if (std::cin.fail()) {
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "Invalid input. Please enter a number." << std::endl;
+        return;
+    }
+
+    generateInstancesRange(maxCuts);
+}
+
+bool TestFramework::isValidNumberOfCuts(int cuts) const {
+    return cuts >= MIN_CUTS;
+}
+
+void TestFramework::generateInstancesRange(int maxCuts) {
+    if (!isValidNumberOfCuts(maxCuts)) {
+        std::cout << "Invalid number of cuts. Minimum allowed is " << MIN_CUTS << std::endl;
+        return;
+    }
+
+    clearInstancesDirectory();
+    int generatedCount = 0;
+
+    for (int cuts = MIN_CUTS; cuts <= maxCuts; cuts++) {
+        std::string filename = "instance_" + std::to_string(cuts) + ".txt";
+        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
+        
+        std::cout << "Generating instance with " << cuts << " cuts... ";
+        if (generator.generateInstance(cuts, fullPath)) {
+            std::cout << "SUCCESS" << std::endl;
+            generatedCount++;
+        } else {
+            std::cout << "FAILED" << std::endl;
+        }
+    }
+
+    std::cout << "\nGeneration complete:" << std::endl;
+    std::cout << "Successfully generated: " << generatedCount << " instances" << std::endl;
+    std::cout << "Failed generations: " << (maxCuts - MIN_CUTS + 1 - generatedCount) << std::endl;
 }
 
 TestFramework::VerificationResult TestFramework::verifyInstance(const std::vector<int>& distances) {

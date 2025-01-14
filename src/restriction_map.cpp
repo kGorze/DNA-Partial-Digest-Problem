@@ -1,13 +1,15 @@
-//
-// Created by konrad_guest on 14/01/2025.
-//
-
 #include <algorithm>
 #include <random>
 
 #include "../include/restriction_map.h"
 
-RestrictionMap::RestrictionMap(int length) : totalLength(length) {}
+int RestrictionMap::calculateMinimumLength(int cuts) {
+    return (cuts + 1) * 10;
+}
+
+RestrictionMap::RestrictionMap(int cuts) {
+    totalLength = calculateMinimumLength(cuts);
+}
 
 bool RestrictionMap::isValidMap() const {
     if(sites.empty() || sites[0] != 0 || sites.back() != totalLength) {
@@ -24,37 +26,61 @@ bool RestrictionMap::isValidMap() const {
 }
 
 bool RestrictionMap::generateMap(int cuts) {
-    sites.clear();
-    sites.push_back(0);
+    int minimumLength = calculateMinimumLength(cuts);
+    totalLength = static_cast<int>(minimumLength * 1.5);
     
+    const int MAX_ATTEMPTS = 100000;
+    int attempts = 0;
+
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(20, totalLength-20);
-    
-    std::vector<int> tempSites;
-    for(int i = 0; i < cuts; i++) {
-        int newSite = dis(gen);
-        tempSites.push_back(newSite);
-    }
-    
-    std::sort(tempSites.begin(), tempSites.end());
-    bool validDistances = true;
-    for(size_t i = 1; i < tempSites.size(); i++) {
-        if(tempSites[i] - tempSites[i-1] < 10) {
-            validDistances = false;
-            break;
+    std::normal_distribution<> spacing_dist(10.0, 2.0);
+
+    while (attempts < MAX_ATTEMPTS) {
+        sites.clear();
+        sites.push_back(0);
+        
+        bool validConfiguration = true;
+        int currentPos = 0;
+        
+        for (int i = 0; i < cuts && validConfiguration; i++) {
+            int spacing;
+            do {
+                spacing = static_cast<int>(std::round(spacing_dist(gen)));
+            } while (spacing < 10);
+            
+            currentPos += spacing;
+            if (currentPos > totalLength - 10 * (cuts - i)) {
+                validConfiguration = false;
+                break;
+            }
+            sites.push_back(currentPos);
         }
+        
+        sites.push_back(totalLength);
+
+        if (validConfiguration && isValidMap()) {
+            return true;
+        }
+        attempts++;
     }
-    
-    if(!validDistances) {
-        return generateMap(cuts);
+
+    sites.clear();
+    sites.push_back(0);
+    for (int i = 1; i <= cuts; i++) {
+        sites.push_back(i * 10);
     }
-    
-    sites.insert(sites.end(), tempSites.begin(), tempSites.end());
     sites.push_back(totalLength);
+
+    if (isValidMap()) {
+        std::cerr << "Note: a fallback was used, as the map could not be drawn.\n";
+        return true;
+    }
     
-    return isValidMap();
+    std::cerr << "Failed to generate valid map even with fallback.\n";
+    return false;
 }
+
 
 std::vector<int> RestrictionMap::generateDistances() const {
     std::vector<int> distances;
@@ -86,4 +112,3 @@ bool RestrictionMap::verifyDistances(const std::vector<int>& distances) const {
     
     return sortedDistances == sortedMapDistances;
 }
-

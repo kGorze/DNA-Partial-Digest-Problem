@@ -8,38 +8,87 @@
 
 #include "../include/map_solver.h"
 
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <iomanip>  // Upewnij się, że masz zaincludowane <iomanip> do setprecision
+
+#include "../include/map_solver.h"
+
 MapSolver::MapSolver(const std::vector<int>& inputDistances, int length) 
-    : distances(inputDistances), totalLength(length) {
-    // Oblicz liczbę miejsc cięć na podstawie rozmiaru multiset
-    // Wzór: n = (-1 + sqrt(1 + 8m))/2, gdzie m to rozmiar multiset
-    maxind = (-1 + std::sqrt(1 + 8 * distances.size())) / 2;
-    currentMap.resize(maxind);
-    
-    // Sortuj odległości dla łatwiejszego porównywania
+    : distances(inputDistances), totalLength(length), processedPaths(0) 
+{
+    maxind = static_cast<int>((1 + std::sqrt(1 + 8.0 * distances.size())) / 2);
+    currentMap.resize(maxind, 0);
     std::sort(distances.begin(), distances.end());
+    
+    // Przywrócenie obliczenia totalPaths
+    totalPaths = calculateTotalPaths();
+    
+    stats = Statistics {
+        totalPaths,        // totalPaths
+        0,                 // processedPaths
+        0.0,               // searchTimeMs
+        std::vector<int>(),// solution
+        inputDistances,    
+        false              
+    };
 }
 
-bool MapSolver::isValidPartialSolution() const {
-    std::vector<int> currentDistances;
+uint64_t MapSolver::calculateTotalPaths() const {
+    // Proste (i mocno zawyżone) oszacowanie liczby wszystkich ścieżek
+    // bez uwzględniania ograniczeń
+    uint64_t total = 1;
+    for (int i = 1; i < maxind - 1; i++) {
+        total *= (totalLength - i);
+    }
+    return total;
+}
+
+void MapSolver::updateProgress() {
+    processedPaths++;
+    if (processedPaths % 1000 == 0) {  
+        displayProgress();
+    }
+}
+
+void MapSolver::displayProgress() const {
+    auto currentTime = std::chrono::steady_clock::now();
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        currentTime - startTime
+                    ).count();
     
-    // Generuj wszystkie odległości z aktualnej częściowej mapy
-    for (size_t i = 0; i < currentMap.size(); i++) {
-        for (size_t j = i + 1; j < currentMap.size(); j++) {
-            int distance = currentMap[j] - currentMap[i];
-            // Sprawdź, czy odległość nie przekracza całkowitej długości
-            if (distance > totalLength) return false;
+    std::cout << "\rPaths processed: " << processedPaths 
+              << " | Time: " << elapsedMs << "ms" << std::flush;
+}
+
+/**
+ * Metoda sprawdzająca, czy część aktualnego rozwiązania (do indeksu assignedCount-1)
+ * nie generuje odległości niezgodnych z multisetem distances.
+ */
+bool MapSolver::isValidPartialSolution(int assignedCount) const {
+    std::vector<int> currentDistances;
+    currentDistances.reserve((assignedCount * (assignedCount-1)) / 2);
+    
+    for (int i = 0; i < assignedCount; i++) {
+        for (int j = 0; j < i; j++) {
+            int distance = currentMap[i] - currentMap[j];
+            if (distance < 0 || distance > totalLength) {
+                return false;
+            }
             currentDistances.push_back(distance);
         }
     }
     
-    // Sortuj wygenerowane odległości
+    if (assignedCount <= 1) {
+        return true;
+    }
+    
     std::sort(currentDistances.begin(), currentDistances.end());
     
-    // Sprawdź, czy wszystkie wygenerowane odległości występują w multiset distances
     std::vector<int> tempDistances = distances;
-    for (size_t i = 0; i < currentDistances.size(); i++) {
-        auto it = std::find(tempDistances.begin(), tempDistances.end(), 
-                           currentDistances[i]);
+    for (int dist : currentDistances) {
+        auto it = std::find(tempDistances.begin(), tempDistances.end(), dist);
         if (it == tempDistances.end()) {
             return false;
         }
@@ -50,15 +99,17 @@ bool MapSolver::isValidPartialSolution() const {
 }
 
 void MapSolver::szukaj(int ind, bool* jest) {
-    // Jeśli już znaleziono rozwiązanie, zakończ
+    processedPaths++;  // Inkrementacja licznika dla każdego wejścia do funkcji
     if (*jest) return;
     
-    // Warunek zakończenia rekurencji
     if (ind == maxind) {
-        // Sprawdź, czy znalezione rozwiązanie jest poprawne
-        if (isValidPartialSolution()) {
+        updateProgress();
+        if (isValidPartialSolution(maxind)) {
             *jest = true;
-            std::cout << "Znaleziono rozwiązanie:\n";
+            stats.solution = currentMap;
+            stats.solutionFound = true;
+            
+            std::cout << "\nSolution found!\n";
             for (int site : currentMap) {
                 std::cout << site << " ";
             }
@@ -67,47 +118,51 @@ void MapSolver::szukaj(int ind, bool* jest) {
         return;
     }
     
-    // Określ zakres poszukiwań dla nowego miejsca cięcia
     int start, end;
-    
     if (ind == 0) {
-        // Pierwszy element musi być 0
         start = end = 0;
     } else if (ind == maxind - 1) {
-        // Ostatni element musi być totalLength
         start = end = totalLength;
     } else {
-        // Dla pozostałych elementów
-        start = currentMap[ind - 1] + 1;  // Musi być większe niż poprzedni
-        // Nie może być za duże, by pozostawić miejsce na pozostałe punkty
+        start = currentMap[ind - 1] + 1;
         end = totalLength - (maxind - ind - 1);
     }
     
-    // Przeszukaj możliwe pozycje dla bieżącego punktu
     for (int pos = start; pos <= end; pos++) {
         currentMap[ind] = pos;
         
-        // Sprawdź, czy warto kontynuować z tym częściowym rozwiązaniem
-        if (isValidPartialSolution()) {
+        if (isValidPartialSolution(ind + 1)) {
             szukaj(ind + 1, jest);
         }
         
-        // Jeśli znaleziono rozwiązanie, przerwij pętlę
         if (*jest) break;
     }
 }
 
 bool MapSolver::solve() {
-    // Zainicjuj zmienną kontrolną
     bool jest = false;
+    startTime = std::chrono::steady_clock::now();
     
-    // Rozpocznij rekurencyjne przeszukiwanie
     szukaj(0, &jest);
     
-    // Zwróć informację, czy znaleziono rozwiązanie
+    auto endTime = std::chrono::steady_clock::now();
+    stats.searchTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            endTime - startTime
+                        ).count();
+    stats.processedPaths = processedPaths;
+    
+    // Obliczenie procentu przeszukanych ścieżek
+    double percentage = 0.0;
+    if(totalPaths > 0) {
+        percentage = (static_cast<double>(processedPaths) / static_cast<double>(totalPaths)) * 100.0;
+    }
+    
+    std::cout << "\n\nSearch completed:\n"
+              << "- Time taken: " << stats.searchTimeMs << "ms\n"
+              << "- Paths processed: " << stats.processedPaths << "\n"
+              << "- Approx. percentage of search space processed: " 
+              << std::fixed << std::setprecision(6) << percentage << "%\n"
+              << "- Solution " << (jest ? "found" : "not found") << "\n";
+    
     return jest;
-}
-
-const std::vector<int>& MapSolver::getSolution() const {
-    return currentMap;
 }

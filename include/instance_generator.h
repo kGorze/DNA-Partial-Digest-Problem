@@ -16,22 +16,19 @@
 
 class InstanceGenerator {
 private:
-    RestrictionMap map;
     std::map<std::string, RestrictionMap> savedMaps;
-    std::string runDirectory;  // Dodane pole dla katalogu uruchomienia
+    std::string runDirectory;
     
-    // Nowa metoda prywatna do tworzenia katalogu
     void createRunDirectory();
-    // Nowa metoda do uzyskania pełnej ścieżki pliku
     std::string getFullPath(const std::string& filename) const;
 
 public:
-    InstanceGenerator(int totalLength = 512);
+    InstanceGenerator() = default;
     bool generateInstance(int cuts, const std::string& filename);
     std::vector<int> loadInstance(const std::string& filename);
     bool verifyInstance(const std::string& filename);
-    // Dodana metoda do pobrania nazwy katalogu
     std::string getRunDirectory() const { return runDirectory; }
 };
+
 
 #endif //INSTANCE_GENERATOR_H
