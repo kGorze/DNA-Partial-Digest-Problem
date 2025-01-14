@@ -28,8 +28,7 @@ std::string InstanceGenerator::getFullPath(const std::string& filename) const {
     return (fs::path(runDirectory) / filename).string();
 }
 
-bool InstanceGenerator::generateInstance(int cuts, const std::string& filename) {
-    // Tworzymy tymczasową mapę z odpowiednią liczbą cięć
+bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, SortOrder order) {
     RestrictionMap newMap(cuts);
     if(!newMap.generateMap(cuts)) {
         return false;
@@ -37,9 +36,20 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename) 
     
     std::vector<int> distances = newMap.generateDistances();
     
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::shuffle(distances.begin(), distances.end(), gen);
+    // Apply the requested sorting order
+    switch(order) {
+    case SortOrder::ASCENDING:
+        std::sort(distances.begin(), distances.end());
+        break;
+    case SortOrder::DESCENDING:
+        std::sort(distances.begin(), distances.end(), std::greater<>());
+        break;
+    case SortOrder::SHUFFLED:
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::shuffle(distances.begin(), distances.end(), gen);
+        break;
+    }
     
     std::string fullPath = getFullPath(filename);
     std::ofstream file(fullPath);

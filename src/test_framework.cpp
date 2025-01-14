@@ -279,28 +279,81 @@ void TestFramework::runInteractiveMode() {
                 
                 std::string directory = (dirChoice == 1) ? INSTANCES_DIR : DATA_DIR;
                 
-                if (fs::exists(directory)) {
+                if (std::filesystem::exists(directory)) {
                     listAvailableInstances(directory);
                     
                     std::string filename;
                     std::cout << "Enter instance filename: ";
                     std::cin >> filename;
                     
-                    solveSpecificInstance(directory, filename);
+                    // Tutaj wczytujemy instancję:
+                    std::vector<int> distances = generator.loadInstance(
+                        getFullPath(directory, filename)
+                    );
+                    if (distances.empty()) {
+                        std::cout << "Failed to load instance.\n";
+                        break;
+                    }
+
+                    int totalLength = *std::max_element(distances.begin(), distances.end());
+                    MapSolver solver(distances, totalLength);
+
+                    // NOWE PODMENU
+                    std::cout << "\nWybierz tryb obliczen:\n"
+                              << "1. Normalne obliczenie\n"
+                              << "2. Obliczenie z dodatkowym warunkiem\n";
+                    int mode;
+                    std::cin >> mode;
+
+                    bool solved = false;
+                    if (mode == 1) {
+                        solved = solver.solve();
+                    } else {
+                        solved = solver.solveWithCondition();
+                    }
+
+                    if (solved) {
+                        std::cout << "Solution found!\n";
+                        const auto& solution = solver.getSolution();
+                        std::cout << "Solution: ";
+                        for (int site : solution) {
+                            std::cout << site << " ";
+                        }
+                        std::cout << "\n";
+                    } else {
+                        std::cout << "No solution found.\n";
+                    }
                 } else {
                     std::cout << "Selected directory does not exist." << std::endl;
                 }
                 break;
         }
         case 3:
-            generateRandomInstances();
-            break;
+            {
+                SortOrder order = getSortOrderFromUser();
+                generateRandomInstances(order);
+                break;
+            }
         case 4:
             verifyAllInstances();
             break;
         case 5:
-            generateAdvancedInstances();
-            break;
+            {
+                std::cout << "Enter maximum number of cuts (minimum is " << MIN_CUTS << "): ";
+                int maxCuts;
+                std::cin >> maxCuts;
+
+                if (std::cin.fail()) {
+                    std::cin.clear();
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                    std::cout << "Invalid input. Please enter a number." << std::endl;
+                    break;
+                }
+
+                SortOrder order = getSortOrderFromUser();
+                generateInstancesRange(maxCuts, order);
+                break;
+            }
         case 6:
             return;
         default:
@@ -359,6 +412,68 @@ bool TestFramework::verifyAllInstances() {
               << std::endl;
               
     return instancesValid && dataValid;
+}
+
+SortOrder TestFramework::getSortOrderFromUser() {
+    std::cout << "\nSelect sorting order:\n";
+    std::cout << "1. Shuffled (random order)\n";
+    std::cout << "2. Ascending order\n";
+    std::cout << "3. Descending order\n";
+    
+    int choice;
+    std::cin >> choice;
+    
+    switch(choice) {
+        case 2:
+            return SortOrder::ASCENDING;
+        case 3:
+            return SortOrder::DESCENDING;
+        default:
+            return SortOrder::SHUFFLED;
+    }
+}
+
+void TestFramework::generateRandomInstances(SortOrder order) {
+    clearInstancesDirectory();
+    
+    for (int i = 0; i < RANDOM_INSTANCES_COUNT; i++) {
+        int cuts = 3 + (i % 5);  // Generate instances with 3-7 cuts
+        std::string filename = "instance_" + std::to_string(i + 1) + ".txt";
+        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
+        
+        if (!generator.generateInstance(cuts, fullPath, order)) {
+            std::cout << "Failed to generate instance " << (i + 1) << std::endl;
+        }
+    }
+    
+    std::cout << "Generated " << RANDOM_INSTANCES_COUNT << " random instances in the 'instances' directory." << std::endl;
+}
+
+void TestFramework::generateInstancesRange(int maxCuts, SortOrder order) {
+    if (!isValidNumberOfCuts(maxCuts)) {
+        std::cout << "Invalid number of cuts. Minimum allowed is " << MIN_CUTS << std::endl;
+        return;
+    }
+
+    clearInstancesDirectory();
+    int generatedCount = 0;
+
+    for (int cuts = MIN_CUTS; cuts <= maxCuts; cuts++) {
+        std::string filename = "instance_" + std::to_string(cuts) + ".txt";
+        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
+        
+        std::cout << "Generating instance with " << cuts << " cuts... ";
+        if (generator.generateInstance(cuts, fullPath, order)) {
+            std::cout << "SUCCESS" << std::endl;
+            generatedCount++;
+        } else {
+            std::cout << "FAILED" << std::endl;
+        }
+    }
+
+    std::cout << "\nGeneration complete:" << std::endl;
+    std::cout << "Successfully generated: " << generatedCount << " instances" << std::endl;
+    std::cout << "Failed generations: " << (maxCuts - MIN_CUTS + 1 - generatedCount) << std::endl;
 }
 
 void TestFramework::generateAdvancedInstances() {

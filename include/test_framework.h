@@ -44,6 +44,11 @@ private:
     void generateInstancesRange(int maxCuts);
     bool isValidNumberOfCuts(int cuts) const;
 
+    void generateRandomInstances(SortOrder order);
+    void generateInstancesRange(int maxCuts, SortOrder order);
+    SortOrder getSortOrderFromUser();
+
+
 public:
     explicit TestFramework(InstanceGenerator& gen);
     

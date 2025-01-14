@@ -14,6 +14,12 @@
 #include <random>
 #include <algorithm>
 
+enum class SortOrder {
+    SHUFFLED,
+    ASCENDING,
+    DESCENDING
+};
+
 class InstanceGenerator {
 private:
     std::map<std::string, RestrictionMap> savedMaps;
@@ -24,7 +30,7 @@ private:
 
 public:
     InstanceGenerator() = default;
-    bool generateInstance(int cuts, const std::string& filename);
+    bool generateInstance(int cuts, const std::string& filename, SortOrder order = SortOrder::SHUFFLED);
     std::vector<int> loadInstance(const std::string& filename);
     bool verifyInstance(const std::string& filename);
     std::string getRunDirectory() const { return runDirectory; }
