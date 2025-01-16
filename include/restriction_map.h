@@ -8,6 +8,10 @@
 #include <vector>
 #include <iostream>
 
+/**
+ * RestrictionMap służy do przechowywania pozycji cięć (sites)
+ * i generowania zbioru odległości do PDP.
+ */
 class RestrictionMap {
 private:
     std::vector<int> sites;
@@ -17,12 +21,9 @@ private:
     static int calculateMinimumLength(int cuts);
 
 public:
-    // Dodajemy konstruktor domyślny
     RestrictionMap() : totalLength(0) {}
-    // Konstruktor z parametrem
     explicit RestrictionMap(int cuts);
     
-    // Setter dla totalLength
     void setTotalLength(int length) { totalLength = length; }
     
     bool generateMap(int cuts);

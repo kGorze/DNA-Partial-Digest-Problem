@@ -21,14 +21,21 @@ void InstanceGenerator::createRunDirectory() {
 }
 
 std::string InstanceGenerator::getFullPath(const std::string& filename) const {
-    if (filename.substr(0, 2) == "./" || filename.substr(0, 3) == "../") {
+    if (filename.rfind("./", 0) == 0 || filename.rfind("../", 0) == 0) {
         return filename;
     }
-    
+    if (runDirectory.empty()) {
+        return filename;
+    }
     return (fs::path(runDirectory) / filename).string();
 }
 
 bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, SortOrder order) {
+    // Jeśli runDirectory puste -> stwórz
+    if (runDirectory.empty()) {
+        createRunDirectory();
+    }
+
     RestrictionMap newMap(cuts);
     if(!newMap.generateMap(cuts)) {
         return false;
@@ -36,7 +43,6 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
     
     std::vector<int> distances = newMap.generateDistances();
     
-    // Apply the requested sorting order
     switch(order) {
     case SortOrder::ASCENDING:
         std::sort(distances.begin(), distances.end());
@@ -45,10 +51,12 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
         std::sort(distances.begin(), distances.end(), std::greater<>());
         break;
     case SortOrder::SHUFFLED:
+    default: {
         std::random_device rd;
         std::mt19937 gen(rd());
         std::shuffle(distances.begin(), distances.end(), gen);
         break;
+    }
     }
     
     std::string fullPath = getFullPath(filename);
@@ -64,6 +72,7 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
     }
     file.close();
     
+    // verification file
     std::ofstream mapFile(getFullPath(filename + ".verify"));
     if(!mapFile.is_open()) {
         return false;
@@ -83,7 +92,6 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
     }
     mapFile.close();
     
-    // Zapisujemy mapę do kontenera
     savedMaps[filename] = std::move(newMap);
     
     return true;

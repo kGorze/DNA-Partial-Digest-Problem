@@ -19,6 +19,12 @@ add_executable(zadanie_4
         src/map_solver.cpp
         include/benchmark.h
         src/benchmark.cpp
+        src/algorithms/bbd_algorithm.cpp
+        src/algorithms/bbb_algorithm.cpp
+        src/algorithms/bbb2_algorithm.cpp
+        include/algorithms/bbb2_algorithm.h
+        include/algorithms/bbb_algorithm.h
+        include/algorithms/bbd_algorithm.h
 )
 
 # Set output directories

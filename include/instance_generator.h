@@ -13,6 +13,7 @@
 #include <iostream>
 #include <random>
 #include <algorithm>
+#include <filesystem>
 
 enum class SortOrder {
     SHUFFLED,
@@ -20,6 +21,10 @@ enum class SortOrder {
     DESCENDING
 };
 
+/**
+ * Klasa odpowiedzialna za generowanie instancji PDP
+ * (m.in. odległości do pliku, ładowanie instancji, weryfikację itp.).
+ */
 class InstanceGenerator {
 private:
     std::map<std::string, RestrictionMap> savedMaps;
@@ -35,6 +40,5 @@ public:
     bool verifyInstance(const std::string& filename);
     std::string getRunDirectory() const { return runDirectory; }
 };
-
 
 #endif //INSTANCE_GENERATOR_H

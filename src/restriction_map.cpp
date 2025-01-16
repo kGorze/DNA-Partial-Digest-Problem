@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <random>
-
 #include "../include/restriction_map.h"
 
 int RestrictionMap::calculateMinimumLength(int cuts) {
@@ -12,16 +11,14 @@ RestrictionMap::RestrictionMap(int cuts) {
 }
 
 bool RestrictionMap::isValidMap() const {
-    if(sites.empty() || sites[0] != 0 || sites.back() != totalLength) {
+    if (sites.empty() || sites[0] != 0 || sites.back() != totalLength) {
         return false;
     }
-    
-    for(size_t i = 1; i < sites.size(); i++) {
-        if(sites[i] <= sites[i-1]) {
+    for (size_t i = 1; i < sites.size(); i++) {
+        if (sites[i] <= sites[i-1]) {
             return false;
         }
     }
-    
     return true;
 }
 
@@ -65,6 +62,7 @@ bool RestrictionMap::generateMap(int cuts) {
         attempts++;
     }
 
+    // fallback
     sites.clear();
     sites.push_back(0);
     for (int i = 1; i <= cuts; i++) {
@@ -90,7 +88,6 @@ std::vector<int> RestrictionMap::generateDistances() const {
             distances.push_back(sites[j] - sites[i]);
         }
     }
-    
     return distances;
 }
 

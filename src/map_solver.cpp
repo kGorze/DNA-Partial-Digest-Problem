@@ -20,7 +20,7 @@ MapSolver::MapSolver(const std::vector<int>& inputDistances, int length)
         totalPaths,
         0,
         0.0,
-        std::vector<int>(),
+        {},
         inputDistances,
         false
     };
@@ -34,6 +34,7 @@ void MapSolver::initializeRemainingDistances() {
 }
 
 uint64_t MapSolver::calculateTotalPaths() const {
+    // Przykładowy, nieskomplikowany szacunek
     uint64_t total = 1;
     for (int i = 1; i < maxind - 1; i++) {
         total *= (totalLength - i);
@@ -53,13 +54,11 @@ bool MapSolver::updateDistanceUsage(int distance, bool add) {
         remainingDistances[distance]++;
         return true;
     }
-    
-    if (remainingDistances.find(distance) == remainingDistances.end() || 
-        remainingDistances[distance] == 0) {
+    auto it = remainingDistances.find(distance);
+    if (it == remainingDistances.end() || it->second == 0) {
         return false;
     }
-    
-    remainingDistances[distance]--;
+    it->second--;
     return true;
 }
 
@@ -94,33 +93,16 @@ void MapSolver::displayProgress() const {
 }
 
 std::vector<int> MapSolver::calculateDistancesBetweenPoints(const std::vector<int>& points) const {
-    std::vector<int> distances;
+    std::vector<int> dists;
     for (size_t i = 1; i < points.size(); i++) {
-        distances.push_back(points[i] - points[i-1]);
+        dists.push_back(points[i] - points[i-1]);
     }
-    return distances;
-}
-
-void MapSolver::displaySolution() const {
-    std::cout << "\nSolution found!\n";
-    
-    std::cout << "Points positions: ";
-    for (int site : stats.solution) {
-        std::cout << site << " ";
-    }
-    std::cout << "\n";
-    
-    std::vector<int> distances = calculateDistancesBetweenPoints(stats.solution);
-    std::cout << "Distances between consecutive points: ";
-    for (int dist : distances) {
-        std::cout << dist << " ";
-    }
-    std::cout << "\n";
+    return dists;
 }
 
 bool MapSolver::isValidPartialSolution(int assignedCount) const {
     std::vector<int> currentDistances;
-    currentDistances.reserve((assignedCount * (assignedCount-1)) / 2);
+    currentDistances.reserve((assignedCount * (assignedCount - 1)) / 2);
     
     for (int i = 0; i < assignedCount; i++) {
         for (int j = 0; j < i; j++) {
@@ -137,7 +119,6 @@ bool MapSolver::isValidPartialSolution(int assignedCount) const {
     }
     
     std::sort(currentDistances.begin(), currentDistances.end());
-    
     std::vector<int> tempDistances = distances;
     for (int dist : currentDistances) {
         auto it = std::find(tempDistances.begin(), tempDistances.end(), dist);
@@ -146,7 +127,6 @@ bool MapSolver::isValidPartialSolution(int assignedCount) const {
         }
         tempDistances.erase(it);
     }
-    
     return true;
 }
 
@@ -160,22 +140,21 @@ void MapSolver::szukaj(int ind, bool* jest) {
             *jest = true;
             stats.solution = currentMap;
             stats.solutionFound = true;
-            displaySolution();
         }
         return;
     }
     
-    int start, end;
+    int startVal, endVal;
     if (ind == 0) {
-        start = end = 0;
+        startVal = endVal = 0;
     } else if (ind == maxind - 1) {
-        start = end = totalLength;
+        startVal = endVal = totalLength;
     } else {
-        start = currentMap[ind - 1] + 1;
-        end = totalLength - (maxind - ind - 1);
+        startVal = currentMap[ind - 1] + 1;
+        endVal = totalLength - (maxind - ind - 1);
     }
     
-    for (int pos = start; pos <= end; pos++) {
+    for (int pos = startVal; pos <= endVal; pos++) {
         currentMap[ind] = pos;
         if (isValidPartialSolution(ind + 1)) {
             szukaj(ind + 1, jest);
@@ -184,7 +163,7 @@ void MapSolver::szukaj(int ind, bool* jest) {
     }
 }
 
-bool MapSolver::solve() {
+std::optional<std::vector<int>> MapSolver::solve() {
     bool jest = false;
     startTime = std::chrono::steady_clock::now();
     
@@ -196,22 +175,13 @@ bool MapSolver::solve() {
     ).count();
     stats.processedPaths = processedPaths;
     
-    double percentage = 0.0;
-    if(totalPaths > 0) {
-        percentage = (static_cast<double>(processedPaths) / static_cast<double>(totalPaths)) * 100.0;
+    if (jest) {
+        return stats.solution;
     }
-    
-    std::cout << "\n\nSearch completed:\n"
-              << "- Time taken: " << stats.searchTimeMs << "ms\n"
-              << "- Paths processed: " << stats.processedPaths << "\n"
-              << "- Approx. percentage of search space processed: " 
-              << std::fixed << std::setprecision(6) << percentage << "%\n"
-              << "- Solution " << (jest ? "found" : "not found") << "\n";
-    
-    return jest;
+    return std::nullopt;
 }
 
-bool MapSolver::solveWithCondition() {
+std::optional<std::vector<int>> MapSolver::solveWithCondition() {
     bool jest = false;
     startTime = std::chrono::steady_clock::now();
     
@@ -220,9 +190,8 @@ bool MapSolver::solveWithCondition() {
     currentMap[maxind - 1] = totalLength;
     
     initializeRemainingDistances();
-    
     if (!updateDistanceUsage(totalLength, false)) {
-        return false;
+        return std::nullopt;
     }
     
     szukajWithCondition(1, &jest);
@@ -233,7 +202,10 @@ bool MapSolver::solveWithCondition() {
     ).count();
     stats.processedPaths = processedPaths;
     
-    return jest;
+    if (jest) {
+        return stats.solution;
+    }
+    return std::nullopt;
 }
 
 void MapSolver::szukajWithCondition(int ind, bool* jest) {
@@ -242,34 +214,30 @@ void MapSolver::szukajWithCondition(int ind, bool* jest) {
     
     if (ind == maxind - 1) {
         updateProgress();
-        
         bool allUsed = true;
-        for (const auto& [distance, count] : remainingDistances) {
-            if (count != 0) {
+        for (const auto& [distance, cnt] : remainingDistances) {
+            if (cnt != 0) {
                 allUsed = false;
                 break;
             }
         }
-        
         if (allUsed) {
             *jest = true;
             stats.solution = currentMap;
             stats.solutionFound = true;
-            displaySolution();
         }
         return;
     }
     
-    int start = currentMap[ind - 1] + 1;
-    int end = totalLength - (maxind - ind - 1);
+    int startVal = currentMap[ind - 1] + 1;
+    int endVal = totalLength - (maxind - ind - 1);
     
-    for (int pos = start; pos <= end; pos++) {
+    for (int pos = startVal; pos <= endVal; pos++) {
         bool canPlace = true;
         std::vector<int> usedDistances;
         
         for (int j = 0; j < ind; j++) {
             if (currentMap[j] == -1) continue;
-            
             int dist = std::abs(pos - currentMap[j]);
             if (!updateDistanceUsage(dist, false)) {
                 canPlace = false;
@@ -277,7 +245,6 @@ void MapSolver::szukajWithCondition(int ind, bool* jest) {
             }
             usedDistances.push_back(dist);
         }
-        
         if (canPlace) {
             int distToEnd = totalLength - pos;
             if (!updateDistanceUsage(distToEnd, false)) {
@@ -293,9 +260,9 @@ void MapSolver::szukajWithCondition(int ind, bool* jest) {
             if (*jest) return;
             currentMap[ind] = -1;
         }
-        
-        for (int dist : usedDistances) {
-            updateDistanceUsage(dist, true);
+
+        for (int d : usedDistances) {
+            updateDistanceUsage(d, true);
         }
     }
 }
@@ -307,10 +274,9 @@ bool MapSolver::canAddPosition(int pos, int ind, std::vector<int>& usedDistances
         if (it == distanceCounter.end() || it->second == 0) {
             return false;
         }
-        distanceCounter[dist]--;
+        it->second--;
         usedDistances.push_back(dist);
     }
-
     int dist0 = std::abs(pos);
     if (distanceCounter[dist0] > 0) {
         distanceCounter[dist0]--;
@@ -318,7 +284,6 @@ bool MapSolver::canAddPosition(int pos, int ind, std::vector<int>& usedDistances
     } else {
         return false;
     }
-
     int distEnd = std::abs(totalLength - pos);
     if (distanceCounter[distEnd] > 0) {
         distanceCounter[distEnd]--;
@@ -326,7 +291,6 @@ bool MapSolver::canAddPosition(int pos, int ind, std::vector<int>& usedDistances
     } else {
         return false;
     }
-
     return true;
 }
 

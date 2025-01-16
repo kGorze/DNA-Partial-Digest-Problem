@@ -12,6 +12,10 @@
 #include "../include/test_framework.h"
 #include "../include/map_solver.h"
 
+/**
+ * Główny punkt wejścia programu.
+ * Uruchamia tryb interaktywny TestFramework.
+ */
 int main() {
     InstanceGenerator generator;
     TestFramework framework(generator);
