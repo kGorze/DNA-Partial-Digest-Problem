@@ -10,8 +10,8 @@
 #include "algorithms/bbb_algorithm.h"
 #include "algorithms/bbb2_algorithm.h"
 
-#include <string>
 #include <vector>
+#include <string>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -22,10 +22,6 @@
 #include <optional>
 #include <sstream>
 
-/**
- * Klasa odpowiedzialna za uruchamianie i rejestrowanie testów wydajności
- * (benchmarków) dla algorytmów PDP (Partial Digest Problem).
- */
 class Benchmark {
 public:
     enum class Algorithm {
@@ -33,6 +29,11 @@ public:
         BBD,
         BBB,
         BBB2
+    };
+
+    enum class BenchmarkMode {
+        ALL_ALGORITHMS,
+        FAST_ALGORITHMS_ONLY
     };
 
     enum class TestType {
@@ -56,6 +57,7 @@ public:
         std::vector<int> specialCaseSizes;  // Sizes for special cases
         int repeatCount;                    // Number of repetitions for each test
         int specialCaseRepetitions;         // Number of repetitions for special cases
+        BenchmarkMode mode;                 // Mode of operation (all vs fast algorithms)
     };
 
     struct BenchmarkSolution {
@@ -81,11 +83,11 @@ public:
 
     void setBenchmarkConfig(const BenchmarkConfig& config);
     void runBenchmark();
-
     void runSingleAlgorithmBenchmark(Algorithm algo);
     void saveResults(const std::string& filename);
     void runTestTypeBenchmark(TestType type, const std::vector<int>& sizes = {});
     void runComprehensiveBenchmark();
+    void runFastAlgorithmsBenchmark();
 
 private:
     static const std::string BENCHMARK_DIR;
@@ -99,17 +101,15 @@ private:
 
     void cleanupTempFiles();
     void createBenchmarkDirectory();
-
     double measureAlgorithmTime(Algorithm algo, int size);
-
     std::string getAlgorithmName(Algorithm algo) const;
     void prepareInstance(int size, TestType type = TestType::STANDARD);
 
-    // Helper methods for generating different types of instances
     std::vector<int> generateDuplicatesInstance(int size);
     std::vector<int> generatePatternsInstance(int size);
     std::vector<int> generateExtremeInstance(int size);
     std::string getTestTypeName(TestType type) const;
+    std::vector<Algorithm> getAlgorithmsForMode(BenchmarkMode mode) const;
 
     // Algorithm implementations
     void runBasicMapSolver(const std::vector<int>& distances, int totalLength);
@@ -119,7 +119,7 @@ private:
 
 private:
     std::vector<ValidatedResult> validatedResults;
-    std::map<std::string, std::vector<int>> referenceResults; // optional reference solutions
+    std::map<std::string, std::vector<int>> referenceResults;
 
     BenchmarkSolution runAlgorithmWithValidation(Algorithm algo, const std::vector<int>& distances);
     bool validateSolution(const std::vector<int>& solution, const std::vector<int>& distances);

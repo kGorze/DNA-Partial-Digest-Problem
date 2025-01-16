@@ -10,11 +10,15 @@ MapSolver::MapSolver(const std::vector<int>& inputDistances, int length)
     , processedPaths(0) 
 {
     std::sort(distances.begin(), distances.end());
+    // Poprawione obliczanie maxind
     maxind = static_cast<int>((1 + std::sqrt(1 + 8.0 * distances.size())) / 2);
-    currentMap.resize(maxind, 0);
+    currentMap.resize(maxind, -1); // Inicjalizacja -1 zamiast 0
     totalPaths = calculateTotalPaths();
     
-    initializeRemainingDistances();
+    // Inicjalizacja counterów dla wszystkich odległości
+    for(int d : distances) {
+        distanceCounter[d]++;
+    }
     
     stats = Statistics{
         totalPaths,
@@ -101,73 +105,91 @@ std::vector<int> MapSolver::calculateDistancesBetweenPoints(const std::vector<in
 }
 
 bool MapSolver::isValidPartialSolution(int assignedCount) const {
-    std::vector<int> currentDistances;
-    currentDistances.reserve((assignedCount * (assignedCount - 1)) / 2);
+    if(assignedCount <= 1) return true;
     
-    for (int i = 0; i < assignedCount; i++) {
-        for (int j = 0; j < i; j++) {
-            int distance = currentMap[i] - currentMap[j];
-            if (distance < 0 || distance > totalLength) {
+    // Sprawdzamy tylko odległości między ustawionymi punktami
+    std::map<int, int> usedDistances;
+    for(int i = 0; i < assignedCount; i++) {
+        if(currentMap[i] == -1) continue;
+        
+        for(int j = 0; j < i; j++) {
+            if(currentMap[j] == -1) continue;
+            
+            int distance = std::abs(currentMap[i] - currentMap[j]);
+            
+            // Sprawdź czy odległość jest w oryginalnym zbiorze
+            auto it = distanceCounter.find(distance);
+            if(it == distanceCounter.end()) {
                 return false;
             }
-            currentDistances.push_back(distance);
+            
+            // Sprawdź czy nie przekroczyliśmy liczby wystąpień
+            usedDistances[distance]++;
+            if(usedDistances[distance] > it->second) {
+                return false;
+            }
         }
     }
     
-    if (assignedCount <= 1) {
-        return true;
-    }
-    
-    std::sort(currentDistances.begin(), currentDistances.end());
-    std::vector<int> tempDistances = distances;
-    for (int dist : currentDistances) {
-        auto it = std::find(tempDistances.begin(), tempDistances.end(), dist);
-        if (it == tempDistances.end()) {
-            return false;
-        }
-        tempDistances.erase(it);
-    }
     return true;
 }
 
 void MapSolver::szukaj(int ind, bool* jest) {
+    if(*jest) return;
     processedPaths++;
-    if (*jest) return;
     
-    if (ind == maxind) {
-        updateProgress();
-        if (isValidPartialSolution(maxind)) {
+    if(ind == maxind) {
+        if(isValidPartialSolution(maxind)) {
             *jest = true;
             stats.solution = currentMap;
             stats.solutionFound = true;
         }
+        updateProgress();
         return;
     }
     
     int startVal, endVal;
-    if (ind == 0) {
+    if(ind == 0) {
         startVal = endVal = 0;
-    } else if (ind == maxind - 1) {
+    } else if(ind == maxind - 1) {
         startVal = endVal = totalLength;
     } else {
-        startVal = currentMap[ind - 1] + 1;
+        // Poprawione ograniczenia
+        int prevPos = -1;
+        for(int i = ind - 1; i >= 0; i--) {
+            if(currentMap[i] != -1) {
+                prevPos = currentMap[i];
+                break;
+            }
+        }
+        
+        if(prevPos == -1) {
+            startVal = 1;
+        } else {
+            startVal = prevPos + 1;
+        }
+        
         endVal = totalLength - (maxind - ind - 1);
     }
     
-    for (int pos = startVal; pos <= endVal; pos++) {
+    for(int pos = startVal; pos <= endVal && !*jest; pos++) {
         currentMap[ind] = pos;
-        if (isValidPartialSolution(ind + 1)) {
+        if(isValidPartialSolution(ind + 1)) {
             szukaj(ind + 1, jest);
         }
-        if (*jest) break;
     }
+    currentMap[ind] = -1; // Backtracking
 }
 
 std::optional<std::vector<int>> MapSolver::solve() {
     bool jest = false;
     startTime = std::chrono::steady_clock::now();
     
-    szukaj(0, &jest);
+    std::fill(currentMap.begin(), currentMap.end(), -1);
+    currentMap[0] = 0;
+    currentMap[maxind - 1] = totalLength;
+    
+    szukaj(1, &jest);
     
     auto endTime = std::chrono::steady_clock::now();
     stats.searchTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -175,7 +197,7 @@ std::optional<std::vector<int>> MapSolver::solve() {
     ).count();
     stats.processedPaths = processedPaths;
     
-    if (jest) {
+    if(jest) {
         return stats.solution;
     }
     return std::nullopt;

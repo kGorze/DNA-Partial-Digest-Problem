@@ -25,6 +25,8 @@ add_executable(zadanie_4
         include/algorithms/bbb2_algorithm.h
         include/algorithms/bbb_algorithm.h
         include/algorithms/bbd_algorithm.h
+        include/debug_map_solver.h
+        src/debug_map_solver.cpp
 )
 
 # Set output directories

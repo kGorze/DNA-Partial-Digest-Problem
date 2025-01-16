@@ -16,6 +16,7 @@ Benchmark::Benchmark() {
     config.specialCaseSizes = {100};
     config.repeatCount = 5;
     config.specialCaseRepetitions = 100;
+    config.mode = BenchmarkMode::ALL_ALGORITHMS;
     createBenchmarkDirectory();
 }
 
@@ -48,18 +49,19 @@ void Benchmark::cleanupTempFiles() {
 }
 
 void Benchmark::runBenchmark() {
-    std::cout << "\nBenchmark configuration:\n";
-    std::cout << "1. Change sizes for standard tests\n"
+    std::cout << "\nBenchmark configuration:\n"
+              << "1. Change sizes for standard tests\n"
               << "2. Change sizes for special cases\n"
               << "3. Change number of repetitions\n"
               << "4. Select algorithm to test\n"
-              << "5. Use current configuration\n";
+              << "5. Test fast algorithms only (BBd, BBb, BBb2)\n"
+              << "6. Use current configuration\n";
 
     int choice;
-    while (!(std::cin >> choice) || choice < 1 || choice > 5) {
+    while (!(std::cin >> choice) || choice < 1 || choice > 6) {
         std::cin.clear();
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        std::cout << "Invalid choice. Select a number from 1 to 5: ";
+        std::cout << "Invalid choice. Select a number from 1 to 6: ";
     }
 
     if (choice == 1) {
@@ -140,30 +142,70 @@ void Benchmark::runBenchmark() {
             std::cout << "Invalid choice. Select a number from 1 to 5: ";
         }
 
+        config.mode = BenchmarkMode::ALL_ALGORITHMS;
         if (algoChoice >= 1 && algoChoice <= 4) {
             runSingleAlgorithmBenchmark(static_cast<Algorithm>(algoChoice - 1));
         } else if (algoChoice == 5) {
-            for (int i = 0; i < 4; ++i) {
-                runSingleAlgorithmBenchmark(static_cast<Algorithm>(i));
-            }
+            runComprehensiveBenchmark();
         }
-        
-        auto now = std::chrono::system_clock::now();
-        auto timestamp = std::chrono::system_clock::to_time_t(now);
-        std::string filename = "benchmark_results_" + std::to_string(timestamp) + ".csv";
-        
-        saveResults(filename);
     }
     else if (choice == 5) {
-        auto now = std::chrono::system_clock::now();
-        auto timestamp = std::chrono::system_clock::to_time_t(now);
-        std::string filename = "benchmark_results_" + std::to_string(timestamp) + ".csv";
-
+        config.mode = BenchmarkMode::FAST_ALGORITHMS_ONLY;
+        runFastAlgorithmsBenchmark();
+    }
+    else if (choice == 6) {
         runComprehensiveBenchmark();
-        saveResults(filename);
     }
 
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::system_clock::to_time_t(now);
+    std::string filename = "benchmark_results_" + std::to_string(timestamp) + ".csv";
+    saveResults(filename);
+
     cleanupTempFiles();
+}
+
+void Benchmark::runFastAlgorithmsBenchmark() {
+    std::cout << "Running benchmark for fast algorithms (BBd, BBb, BBb2)...\n";
+    
+    auto algorithms = getAlgorithmsForMode(BenchmarkMode::FAST_ALGORITHMS_ONLY);
+    
+    for (int size : config.standardSizes) {
+        std::cout << "\nTesting size n=" << size << "\n";
+        
+        for (int i = 0; i < config.repeatCount; ++i) {
+            prepareInstance(size, TestType::STANDARD);
+            std::vector<int> distances = instanceGenerator.loadInstance(TEMP_FILE);
+
+            for (Algorithm algo : algorithms) {
+                auto benchResult = runAlgorithmWithValidation(algo, distances);
+
+                BenchmarkResult result = {
+                    size,
+                    benchResult.executionTimeMs,
+                    algo,
+                    TestType::STANDARD,
+                    "Test type: Standard, size: " + std::to_string(size),
+                    benchResult.found
+                };
+                results.push_back(result);
+
+                std::cout << getAlgorithmName(algo) << ": " 
+                         << benchResult.executionTimeMs << "ms "
+                         << (benchResult.found ? "(solution found)" : "(no solution)") << "\n";
+            }
+        }
+    }
+}
+
+std::vector<Benchmark::Algorithm> Benchmark::getAlgorithmsForMode(BenchmarkMode mode) const {
+    std::vector<Algorithm> algorithms;
+    if (mode == BenchmarkMode::ALL_ALGORITHMS) {
+        algorithms = {Algorithm::BASIC_MAP, Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
+    } else {
+        algorithms = {Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
+    }
+    return algorithms;
 }
 
 void Benchmark::runSingleAlgorithmBenchmark(Algorithm algo) {

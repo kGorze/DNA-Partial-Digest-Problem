@@ -1,46 +1,373 @@
-//
-// Created by konrad_guest on 14/01/2025.
-//
 #include "../include/test_framework.h"
-#include "../include/map_solver.h"
-
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <cmath>
 #include <iostream>
-#include <limits>
+#include <algorithm>
+#include <cmath>
+#include <set>
+#include <chrono>
 
 namespace fs = std::filesystem;
 
 const std::chrono::hours TestFramework::MAX_EXECUTION_TIME(1);
 const std::string TestFramework::INSTANCES_DIR = "instances";
-const std::string TestFramework::DATA_DIR = "data";
-const int TestFramework::RANDOM_INSTANCES_COUNT = 10;
 
-static void displaySolution(const std::vector<int>& solution) {
-    if(solution.empty()) {
-        std::cout << "No solution found.\n";
-        return;
+TestFramework::TestFramework(InstanceGenerator& gen) : generator(gen) {
+    if (!fs::exists(INSTANCES_DIR)) {
+        fs::create_directory(INSTANCES_DIR);
     }
-    std::vector<int> sol = solution;
-    std::sort(sol.begin(), sol.end());
-    std::cout << "Solution found!\n";
-    std::cout << "Points positions: ";
-    for (int site : sol) {
-        std::cout << site << " ";
-    }
-    std::cout << "\nDistances between consecutive points: ";
-    for (size_t i = 1; i < sol.size(); ++i) {
-        std::cout << (sol[i] - sol[i-1]) << " ";
-    }
-    std::cout << "\n";
+    generator.setOutputDirectory(INSTANCES_DIR); // Ustaw katalog wyjściowy na "instances"
 }
 
-TestFramework::TestFramework(InstanceGenerator& gen) : generator(gen) {}
+void TestFramework::clearInstancesDirectory() {
+    if (fs::exists(INSTANCES_DIR)) {
+        for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+            fs::remove(entry.path());
+        }
+    }
+}
+
+std::string TestFramework::getFullPath(const std::string& filename) const {
+    return (fs::path(INSTANCES_DIR) / filename).string();
+}
+
+void TestFramework::listAvailableInstances() {
+    std::cout << "\nAvailable instances in " << INSTANCES_DIR << ":\n";
+    
+    std::vector<std::string> instances;
+    for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+        if (entry.path().extension() == ".txt") {
+            instances.push_back(entry.path().filename().string());
+        }
+    }
+    
+    // Sort instances for consistent numbering
+    std::sort(instances.begin(), instances.end());
+    
+    // Display instances with numbers
+    for (size_t i = 0; i < instances.size(); i++) {
+        std::cout << "  " << (i + 1) << ". " << instances[i] << "\n";
+    }
+    std::cout << std::endl;
+}
+
+bool TestFramework::generateRandomInstances(int count, SortOrder order) {
+    clearInstancesDirectory();
+    int successCount = 0;
+
+    for (int i = 0; i < count; i++) {
+        int cuts = MIN_CUTS + (i % 5); // Varying number of cuts
+        std::string filename = "random_" + std::to_string(i + 1) + ".txt";
+        
+        std::cout << "Generating random instance " << (i + 1) << "/" << count 
+                  << " (cuts: " << cuts << ")... ";
+                  
+        if (generator.generateInstance(cuts, filename, order)) { // Usunięto getFullPath
+            std::cout << "SUCCESS\n";
+            successCount++;
+        } else {
+            std::cout << "FAILED\n";
+        }
+    }
+
+    std::cout << "\nRandom instance generation complete:\n"
+              << "Successfully generated: " << successCount << "/" << count << " instances\n";
+              
+    return successCount == count;
+}
+
+bool TestFramework::generateInstancesRange(int maxCuts, SortOrder order) {
+    if (!isValidNumberOfCuts(maxCuts)) {
+        std::cout << "Invalid number of cuts. Minimum allowed is " << MIN_CUTS << std::endl;
+        return false;
+    }
+
+    clearInstancesDirectory();
+    int successCount = 0;
+    int totalCount = maxCuts - MIN_CUTS + 1;
+
+    for (int cuts = MIN_CUTS; cuts <= maxCuts; cuts++) {
+        std::string filename = "sequential_" + std::to_string(cuts) + ".txt";
+        std::cout << "Generating instance with " << cuts << " cuts... ";
+        
+        // Usuwamy getFullPath stąd, bo InstanceGenerator sam zadba o ścieżkę
+        if (generator.generateInstance(cuts, filename, order)) {
+            std::cout << "SUCCESS\n";
+            successCount++;
+        } else {
+            std::cout << "FAILED\n";
+        }
+    }
+
+    std::cout << "\nSequential instance generation complete:\n"
+              << "Successfully generated: " << successCount << "/" << totalCount << " instances\n";
+              
+    return successCount == totalCount;
+}
+
+TestFramework::VerificationResult TestFramework::verifyInstanceFile(const std::string& filepath) {
+    std::vector<int> distances = generator.loadInstance(filepath);
+    if (distances.empty()) {
+        return {false, "Failed to load instance", std::nullopt, 0.0};
+    }
+
+    // Basic validation
+    if (!verifyInputSize(distances, distances.size())) {
+        return {false, "Invalid input size", std::nullopt, 0.0};
+    }
+    if (!verifyInputValues(distances)) {
+        return {false, "Invalid distance values", std::nullopt, 0.0};
+    }
+    if (!checkCutsPossibility(distances.size())) {
+        return {false, "Invalid multiset size for PDP", std::nullopt, 0.0};
+    }
+
+    // Try to solve using BBb algorithm
+    auto start = std::chrono::high_resolution_clock::now();
+    auto solution = bbbSolver.solve(distances);
+    auto end = std::chrono::high_resolution_clock::now();
+    double timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    if (!solution) {
+        return {false, "No solution found using BBb algorithm", std::nullopt, timeMs};
+    }
+
+    // Validate the solution
+    if (!validateSolution(*solution, distances)) {
+        return {false, "Invalid solution from BBb algorithm", solution, timeMs};
+    }
+
+    return {true, "Instance verified successfully", solution, timeMs};
+}
+
+bool TestFramework::verifyAllInstances() {
+    if (!fs::exists(INSTANCES_DIR) || fs::is_empty(INSTANCES_DIR)) {
+        std::cout << "No instances found in '" << INSTANCES_DIR << "' directory.\n";
+        return false;
+    }
+
+    int totalFiles = 0;
+    int validFiles = 0;
+    std::cout << "\nStarting comprehensive instance verification...\n\n";
+
+    for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+        if (entry.path().extension() == ".txt") {
+            totalFiles++;
+            auto result = verifyInstanceFile(entry.path().string());
+            displayVerificationResult(entry.path().filename().string(), result);
+            if (result.isValid) validFiles++;
+        }
+    }
+
+    std::cout << "\nVerification Summary:\n"
+              << "Total instances: " << totalFiles << "\n"
+              << "Valid instances: " << validFiles << "\n"
+              << "Invalid instances: " << (totalFiles - validFiles) << "\n";
+
+    return validFiles == totalFiles;
+}
+
+void TestFramework::displayVerificationResult(const std::string& filename, 
+                                            const VerificationResult& result) {
+    std::cout << "Verifying " << filename << "... ";
+    if (result.isValid) {
+        std::cout << "VALID (solved in " << result.verificationTimeMs << "ms)\n";
+        if (result.solution) {
+            std::cout << "  Solution found: ";
+            for (int x : *result.solution) {
+                std::cout << x << " ";
+            }
+            std::cout << "\n";
+        }
+    } else {
+        std::cout << "INVALID: " << result.message << "\n";
+    }
+}
+
+bool TestFramework::validateSolution(const std::vector<int>& solution, 
+                                   const std::vector<int>& distances) {
+    if (solution.empty()) return false;
+
+    // Generate distances from solution
+    auto solutionDistances = generateDistancesFromSolution(solution);
+    
+    // Compare multisets
+    return areMultisetsEqual(solutionDistances, distances);
+}
+
+std::vector<int> TestFramework::generateDistancesFromSolution(const std::vector<int>& solution) {
+    std::vector<int> distances;
+    for (size_t i = 0; i < solution.size(); i++) {
+        for (size_t j = i + 1; j < solution.size(); j++) {
+            distances.push_back(std::abs(solution[j] - solution[i]));
+        }
+    }
+    std::sort(distances.begin(), distances.end());
+    return distances;
+}
+
+bool TestFramework::areMultisetsEqual(std::vector<int> a, std::vector<int> b) {
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    return a == b;
+}
+
+void TestFramework::runInteractiveMode() {
+    while (true) {
+        std::cout << "\nTest Framework Menu:\n";
+        std::cout << "1. Generate random instances\n";
+        std::cout << "2. Generate instances range\n";
+        std::cout << "3. Verify all instances\n";
+        std::cout << "4. Solve specific instance\n";
+        std::cout << "5. Run benchmark\n";
+        std::cout << "6. Run debug solver on instance\n";  // Nowa opcja
+        std::cout << "0. Exit\n";
+        std::cout << "Choose option: ";
+
+        int choice;
+        std::cin >> choice;
+
+        switch (choice) {
+            case 1: {
+                int count;
+                std::cout << "Enter number of instances: ";
+                std::cin >> count;
+                generateRandomInstances(count, getSortOrderFromUser());
+                break;
+            }
+            
+            case 2: {
+                int maxCuts;
+                std::cout << "Enter maximum number of cuts: ";
+                std::cin >> maxCuts;
+                generateInstancesRange(maxCuts, getSortOrderFromUser());
+                break;
+            }
+            
+            case 3:
+                verifyAllInstances();
+                break;
+                
+            case 4: {
+                listAvailableInstances();
+                std::cout << "Enter instance filename: ";
+                std::string filename;
+                std::cin >> filename;
+                solveSpecificInstance(filename);
+                break;
+            }
+            
+            case 5:
+                benchmark.runBenchmark();
+                break;
+            
+            case 6: {  // Nowa opcja debug solvera
+                listAvailableInstances();
+                std::cout << "Enter instance filename: ";
+                std::string filename;
+                std::cin >> filename;
+                runDebugSolver(filename);
+                break;
+            }
+            
+            case 0:
+                return;
+                
+            default:
+                std::cout << "Invalid option!\n";
+        }
+    }
+}
+
+void TestFramework::testAllInstances(int algorithmChoice) {
+    if (!fs::exists(INSTANCES_DIR) || fs::is_empty(INSTANCES_DIR)) {
+        std::cout << "No instances found in '" << INSTANCES_DIR << "' directory.\n";
+        return;
+    }
+
+    int totalFiles = 0;
+    int validFiles = 0;
+    std::cout << "\nStarting comprehensive instance testing...\n\n";
+
+    for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
+        if (entry.path().extension() == ".txt") {
+            totalFiles++;
+            std::string filename = entry.path().filename().string();
+            std::vector<int> distances = generator.loadInstance(filename); // Remove INSTANCES_DIR prefix
+
+            if (distances.empty()) {
+                std::cout << "Failed to load instance: " << filename << "\n";
+                continue;
+            }
+
+            std::optional<std::vector<int>> solution;
+            auto start = std::chrono::high_resolution_clock::now();
+
+            switch (algorithmChoice) {
+                case 1:
+                    solution = bbbSolver.solve(distances);
+                    break;
+                case 2: {
+                    BBb2Algorithm bbb2Solver;
+                    solution = bbb2Solver.solve(distances);
+                    break;
+                }
+                case 3: {
+                    BBdAlgorithm bbdSolver;
+                    solution = bbdSolver.solve(distances);
+                    break;
+                }
+                default:
+                    std::cout << "Invalid algorithm choice\n";
+                    return;
+            }
+
+            auto end = std::chrono::high_resolution_clock::now();
+            double timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+            if (solution) {
+                validFiles++;
+                std::cout << "Instance " << filename << ": SOLVED (" << timeMs << "ms)\n";
+                std::cout << "Solution: ";
+                for (int x : *solution) {
+                    std::cout << x << " ";
+                }
+                std::cout << "\n";
+            } else {
+                std::cout << "Instance " << filename << ": NO SOLUTION FOUND (" << timeMs << "ms)\n";
+            }
+        }
+    }
+
+    std::cout << "\nTesting Summary:\n"
+              << "Total instances: " << totalFiles << "\n"
+              << "Solved instances: " << validFiles << "\n"
+              << "Failed instances: " << (totalFiles - validFiles) << "\n";
+}
+
+SortOrder TestFramework::getSortOrderFromUser() {
+    std::cout << "\nSelect sorting order:\n"
+              << "1. Shuffled (random order)\n"
+              << "2. Ascending order\n"
+              << "3. Descending order\n"
+              << "Choice: ";
+              
+    int choice;
+    std::cin >> choice;
+    
+    switch(choice) {
+        case 2: return SortOrder::ASCENDING;
+        case 3: return SortOrder::DESCENDING;
+        default: return SortOrder::SHUFFLED;
+    }
+}
+
+bool TestFramework::isValidNumberOfCuts(int cuts) const {
+    return cuts >= MIN_CUTS;
+}
 
 bool TestFramework::verifyInputSize(const std::vector<int>& distances, int expectedSize) {
-    return (int)distances.size() == expectedSize;
+    return static_cast<int>(distances.size()) == expectedSize;
 }
 
 bool TestFramework::verifyInputValues(const std::vector<int>& distances) {
@@ -50,484 +377,211 @@ bool TestFramework::verifyInputValues(const std::vector<int>& distances) {
 
 int TestFramework::calculateRequiredCuts(int multisetSize) {
     double discriminant = 1.0 + 8.0 * multisetSize;
-    double n = ( -1.0 + std::sqrt(discriminant) ) / 2.0;
+    double n = (-1.0 + std::sqrt(discriminant)) / 2.0;
     return static_cast<int>(std::round(n - 1.0));
 }
 
 bool TestFramework::checkCutsPossibility(int multisetSize) {
     int requiredCuts = calculateRequiredCuts(multisetSize);
-    int actualSize = (requiredCuts + 2) * (requiredCuts + 1) / 2;
-    return actualSize == multisetSize;
+    int expectedSize = (requiredCuts + 2) * (requiredCuts + 1) / 2;
+    return expectedSize == multisetSize;
 }
 
-std::chrono::milliseconds TestFramework::measureExecutionTime(const std::vector<int>& distances) {
-    auto start = std::chrono::high_resolution_clock::now();
-    // Tu można wstawić testowy algorytm (ale w tym frameworku i tak używamy Benchmarka).
-    auto end = std::chrono::high_resolution_clock::now();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-}
-
-bool TestFramework::checkTimeLimit(const std::chrono::milliseconds& duration) {
-    return duration < MAX_EXECUTION_TIME;
-}
-
-std::vector<int> TestFramework::loadPDPInstance(const std::string& filename) {
-    std::vector<int> distances;
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Unable to open file: " + filename);
-    }
-    int value;
-    while (file >> value) {
-        distances.push_back(value);
-    }
-    return distances;
-}
-
-std::vector<std::vector<int>> TestFramework::generateSortedVariants(const std::vector<int>& original) {
-    std::vector<std::vector<int>> variants;
-    variants.push_back(original);
+bool TestFramework::solveSpecificInstance(const std::string& input) {
+    std::string filename;
     
-    auto ascending = original;
-    std::sort(ascending.begin(), ascending.end());
-    variants.push_back(ascending);
-    
-    auto descending = original;
-    std::sort(descending.begin(), descending.end(), std::greater<>());
-    variants.push_back(descending);
-    
-    return variants;
-}
-
-void TestFramework::clearInstancesDirectory() {
-    if (fs::exists(INSTANCES_DIR)) {
+    // Try to parse input as a number
+    try {
+        int instanceNum = std::stoi(input);
+        // Get list of txt files
+        std::vector<std::string> instances;
         for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
-            fs::remove(entry.path());
-        }
-    } else {
-        fs::create_directory(INSTANCES_DIR);
-    }
-}
-
-void TestFramework::generateRandomInstances() {
-    clearInstancesDirectory();
-    
-    for (int i = 0; i < RANDOM_INSTANCES_COUNT; i++) {
-        int cuts = 3 + (i % 5);
-        std::string filename = "instance_" + std::to_string(i + 1) + ".txt";
-        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
-        
-        if (!generator.generateInstance(cuts, fullPath)) {
-            std::cout << "Failed to generate instance " << (i + 1) << std::endl;
-        }
-    }
-    std::cout << "Generated " << RANDOM_INSTANCES_COUNT << " random instances in 'instances' directory.\n";
-}
-
-std::string TestFramework::getFullPath(const std::string& directory, const std::string& filename) {
-    return (fs::path(directory) / filename).string();
-}
-
-void TestFramework::listAvailableInstances(const std::string& directory) {
-    std::cout << "Available instances in " << directory << ":\n";
-    for (const auto& entry : fs::directory_iterator(directory)) {
-        if (entry.path().extension() == ".txt") {
-            std::cout << "  " << entry.path().filename().string() << std::endl;
-        }
-    }
-}
-
-bool TestFramework::testRandomInstances() {
-    if (!fs::exists(INSTANCES_DIR) || fs::is_empty(INSTANCES_DIR)) {
-        std::cout << "No instances found in the 'instances' directory." << std::endl;
-        return false;
-    }
-    
-    bool allTestsPassed = true;
-    for (const auto& entry : fs::directory_iterator(INSTANCES_DIR)) {
-        if (entry.path().extension() == ".txt") {
-            std::vector<int> distances = generator.loadInstance(entry.path().string());
-            if (distances.empty()) {
-                std::cout << entry.path().filename().string() << ": Failed to load distances" << std::endl;
-                allTestsPassed = false;
-                continue;
-            }
-            int totalLength = *std::max_element(distances.begin(), distances.end());
-            MapSolver solver(distances, totalLength);
-            auto solution = solver.solve();
-            if (solution) {
-                std::cout << entry.path().filename().string() << ": ";
-                displaySolution(*solution);
-            } else {
-                std::cout << entry.path().filename().string() << ": No solution found\n";
-                allTestsPassed = false;
-            }
-        }
-        std::cout << "\n";
-    }
-    return allTestsPassed;
-}
-
-bool TestFramework::testPDPInstances(const std::string& dataDirectory) {
-    bool allTestsPassed = true;
-    
-    if (!fs::exists(dataDirectory)) {
-        std::cout << "Error: Directory '" << dataDirectory << "' does not exist." << std::endl;
-        return false;
-    }
-    
-    try {
-        int totalFiles = 0;
-        for (const auto& entry : fs::directory_iterator(dataDirectory)) {
             if (entry.path().extension() == ".txt") {
-                totalFiles++;
+                instances.push_back(entry.path().filename().string());
             }
         }
         
-        std::cout << "Found " << totalFiles << " PDP instances to test.\n";
-        int currentFile = 0;
+        // Sort instances for consistent numbering
+        std::sort(instances.begin(), instances.end());
         
-        for (const auto& entry : fs::directory_iterator(dataDirectory)) {
-            if (entry.path().extension() == ".txt") {
-                currentFile++;
-                std::cout << "Testing PDP instance " << currentFile << "/" << totalFiles 
-                          << " (" << entry.path().filename().string() << ")... ";
-                
-                try {
-                    auto distances = loadPDPInstance(entry.path().string());
-                    auto result = verifyInstance(distances);
-                    
-                    if (!result.isValid) {
-                        std::cout << "FAILED: " << result.message << std::endl;
-                        allTestsPassed = false;
-                    } else {
-                        std::cout << "PASSED\n";
-                    }
-                } catch (const std::exception& e) {
-                    std::cout << "ERROR: " << e.what() << std::endl;
-                    allTestsPassed = false;
-                }
-            }
+        if (instanceNum <= 0 || instanceNum > static_cast<int>(instances.size())) {
+            std::cout << "Invalid instance number. Please choose between 1 and " 
+                     << instances.size() << "\n";
+            return false;
         }
-    } catch (const fs::filesystem_error& e) {
-        std::cout << "Filesystem error: " << e.what() << std::endl;
+        
+        filename = instances[instanceNum - 1];
+    }
+    catch (const std::invalid_argument&) {
+        // Input is not a number, treat it as filename
+        filename = input;
+    }
+
+    std::string fullPath = (fs::path(INSTANCES_DIR) / filename).string();
+    
+    if (!fs::exists(fullPath)) {
+        std::cout << "Instance file not found: " << fullPath << "\n";
         return false;
     }
-    
-    return allTestsPassed;
-}
 
-bool TestFramework::analyzeSortingImpact(const std::string& instanceFile) {
-    try {
-        auto original = generator.loadInstance(instanceFile);
-        auto variants = generateSortedVariants(original);
-        
-        const char* sortTypes[] = {"Original", "Ascending", "Descending"};
-        
-        for (size_t i = 0; i < variants.size(); i++) {
-            auto duration = measureExecutionTime(variants[i]);
-            std::cout << "  " << sortTypes[i] << " order: " << duration.count() << "ms\n";
-            if (!checkTimeLimit(duration)) {
-                std::cout << "  WARNING: Execution exceeded time limit!\n";
-                return false;
-            }
-        }
-        return true;
-    } catch (const std::exception& e) {
-        std::cout << "ERROR: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-void TestFramework::solveSpecificInstance(const std::string& directory, const std::string& filename) {
-    std::string fullPath = getFullPath(directory, filename);
-    std::vector<int> distances = generator.loadInstance(fullPath);
+    // Wybór algorytmu
+    std::cout << "\nChoose algorithm:\n";
+    std::cout << "1. BBb Algorithm\n";
+    std::cout << "2. BBb2 Algorithm\n";
+    std::cout << "3. BBd Algorithm\n";
+    std::cout << "4. Basic Map Solver\n";
+    std::cout << "5. Debug Basic Map Solver\n";
+    std::cout << "Enter choice (1-5): ";
     
+    int algorithmChoice;
+    std::cin >> algorithmChoice;
+
+    std::vector<int> distances = generator.loadInstance(filename);
     if (distances.empty()) {
-        std::cout << "Failed to load instance.\n";
-        return;
+        std::cout << "Failed to load instance\n";
+        return false;
     }
-    
-    int cuts = calculateRequiredCuts(distances.size());
-    int totalLength = *std::max_element(distances.begin(), distances.end());
-    
-    std::cout << "Solving instance " << filename << " (cuts: " << cuts << ")..." << std::endl;
-    MapSolver solver(distances, totalLength);
-    
-    auto solution = solver.solve();
-    if (solution) {
-        displaySolution(*solution);
-    } else {
-        std::cout << "No solution found.\n";
-    }
-}
 
-void TestFramework::runInteractiveMode() {
-    while (true) {
-        std::cout << "\nSelect operation mode:\n";
-        std::cout << "1. Test all instances from 'instances' directory\n";
-        std::cout << "2. Solve specific instance\n";
-        std::cout << "3. Generate new random instances\n";
-        std::cout << "4. Verify all instances\n";
-        std::cout << "5. Generate advanced instances\n";
-        std::cout << "6. Run benchmark\n";
-        std::cout << "7. Exit\n";
-        
-        int choice;
-        std::cin >> choice;
-        
-        switch (choice) {
+    std::optional<std::vector<int>> solution;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // Find total length for Map Solvers
+    int totalLength = *std::max_element(distances.begin(), distances.end());
+
+    // Create log filename for debug solver
+    std::string logFilename = "debug_" + filename + ".log";
+
+    switch (algorithmChoice) {
         case 1:
-            testRandomInstances();
+            solution = bbbSolver.solve(distances);
             break;
         case 2: {
-            std::cout << "Select directory:\n";
-            std::cout << "1. instances\n";
-            std::cout << "2. data\n";
-            int dirChoice;
-            std::cin >> dirChoice;
-            std::string directory = (dirChoice == 1) ? INSTANCES_DIR : DATA_DIR;
-            if (fs::exists(directory)) {
-                listAvailableInstances(directory);
-                std::string filename;
-                std::cout << "Enter instance filename: ";
-                std::cin >> filename;
-                
-                std::cout << "\nSelect algorithm to solve instance:\n"
-                          << "1. Basic Map Solver\n"
-                          << "2. BBd Algorithm\n"
-                          << "3. BBb Algorithm\n"
-                          << "4. BBb2 Algorithm\n"
-                          << "Choice: ";
-                int algoChoice;
-                std::cin >> algoChoice;
-                
-                std::vector<int> distances = generator.loadInstance(getFullPath(directory, filename));
-                if (distances.empty()) {
-                    std::cout << "Failed to load instance.\n";
-                    break;
-                }
-                int totalLength = *std::max_element(distances.begin(), distances.end());
-
-                std::optional<std::vector<int>> solution;
-                switch(algoChoice) {
-                    case 1: {
-                        MapSolver solver(distances, totalLength);
-                        solution = solver.solve();
-                        break;
-                    }
-                    case 2: {
-                        BBdAlgorithm algorithm;
-                        solution = algorithm.solve(distances);
-                        break;
-                    }
-                    case 3: {
-                        BBbAlgorithm algorithm;
-                        solution = algorithm.solve(distances);
-                        break;
-                    }
-                    case 4: {
-                        BBb2Algorithm algorithm;
-                        solution = algorithm.solve(distances);
-                        break;
-                    }
-                    default:
-                        std::cout << "Invalid algorithm choice.\n";
-                        continue;
-                }
-                if (solution) {
-                    displaySolution(*solution);
-                } else {
-                    std::cout << "No solution found.\n";
-                }
-            } else {
-                std::cout << "Selected directory does not exist." << std::endl;
-            }
+            BBb2Algorithm bbb2Solver;
+            solution = bbb2Solver.solve(distances);
             break;
         }
         case 3: {
-            SortOrder order = getSortOrderFromUser();
-            generateRandomInstances(order);
+            BBdAlgorithm bbdSolver;
+            solution = bbdSolver.solve(distances);
             break;
         }
-        case 4:
-            verifyAllInstances();
+        case 4: {
+            MapSolver solver(distances, totalLength);
+            solution = solver.solve();
             break;
+        }
         case 5: {
-            std::cout << "Enter maximum number of cuts (minimum is " << MIN_CUTS << "): ";
-            int maxCuts;
-            std::cin >> maxCuts;
-            if (std::cin.fail()) {
-                std::cin.clear();
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                std::cout << "Invalid input. Please enter a number.\n";
-                break;
-            }
-            SortOrder order = getSortOrderFromUser();
-            generateInstancesRange(maxCuts, order);
+            DebugMapSolver debugSolver(distances, totalLength, true, logFilename);
+            solution = debugSolver.solve();
+            
+            // Wyświetl statystyki debug solvera
+            const auto& stats = debugSolver.getStatistics();
+            std::cout << "\nDebug Statistics:\n";
+            std::cout << "Total paths explored: " << stats.totalPaths << "\n";
+            std::cout << "Processed paths: " << stats.processedPaths << "\n";
+            std::cout << "Search time: " << stats.searchTimeMs << "ms\n";
+            std::cout << "Debug log saved to: " << logFilename << "\n";
             break;
         }
-        case 6:
-            benchmark.runBenchmark();
-            break;
-        case 7:
-            return;
         default:
-            std::cout << "Invalid choice.\n";
-        }
+            std::cout << "Invalid algorithm choice\n";
+            return false;
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    std::string algorithmName;
+    switch (algorithmChoice) {
+        case 1: algorithmName = "BBb Algorithm4"; break;
+        case 2: algorithmName = "BBb2 Algorithm"; break;
+        case 3: algorithmName = "BBd Algorithm"; break;
+        case 4: algorithmName = "Basic Map Solver"; break;
+        case 5: algorithmName = "Debug Basic Map Solver"; break;
+        default: algorithmName = "Unknown Algorithm";
+    }
+
+    std::cout << "\nResults for " << algorithmName << ":\n";
+    
+    if (solution) {
+        std::cout << "Solution found in " << timeMs << "ms!\n";
+        std::cout << "Solution: ";
+        for (int x : *solution) {
+            std::cout << x << " ";
+        }
+        std::cout << "\n";
+        
+        if (validateSolution(*solution, distances)) {
+            std::cout << "Solution validation: PASSED\n";
+        } else {
+            std::cout << "Solution validation: FAILED\n";
+        }
+    } else {
+        std::cout << "No solution found (time: " << timeMs << "ms)\n";
+    }
+
+    return solution.has_value();
 }
 
-bool TestFramework::verifyInstancesInDirectory(const std::string& directory) {
-    if (!fs::exists(directory)) {
-        std::cout << "Directory '" << directory << "' does not exist." << std::endl;
+bool TestFramework::runDebugSolver(const std::string& filename) {
+    std::vector<int> distances = generator.loadInstance(filename);
+    if (distances.empty()) {
+        std::cout << "Failed to load instance from file: " << filename << std::endl;
         return false;
     }
 
-    bool allValid = true;
-    int totalFiles = 0;
-    int validFiles = 0;
-
-    for (const auto& entry : fs::directory_iterator(directory)) {
-        if (entry.path().extension() == ".txt") {
-            totalFiles++;
-            std::cout << "Verifying " << entry.path().filename().string() << "... ";
-            try {
-                std::vector<int> distances = generator.loadInstance(entry.path().string());
-                if (generator.verifyInstance(entry.path().filename().string())) {
-                    std::cout << "VALID\n";
-                    validFiles++;
-                } else {
-                    std::cout << "INVALID\n";
-                    allValid = false;
-                }
-            } catch (const std::exception& e) {
-                std::cout << "ERROR: " << e.what() << std::endl;
-                allValid = false;
-            }
-        }
-    }
-
-    std::cout << "\nSummary for " << directory << ":\n";
-    std::cout << "Total files: " << totalFiles << "\n";
-    std::cout << "Valid files: " << validFiles << "\n";
-    std::cout << "Invalid files: " << (totalFiles - validFiles) << "\n";
-
-    return allValid;
-}
-
-bool TestFramework::verifyAllInstances() {
-    std::cout << "Verifying all instances in both directories...\n\n";
+    int totalLength = *std::max_element(distances.begin(), distances.end());
     
-    bool instancesValid = verifyInstancesInDirectory(INSTANCES_DIR);
-    bool dataValid = verifyInstancesInDirectory(DATA_DIR);
+    // Inicjalizacja debug solvera
+    DebugMapSolver solver(distances, totalLength, true, "debug_" + filename + ".log");
     
-    std::cout << "\nOverall verification result: " 
-              << (instancesValid && dataValid ? "ALL VALID" : "SOME INVALID") 
-              << std::endl;
-              
-    return instancesValid && dataValid;
-}
-
-SortOrder TestFramework::getSortOrderFromUser() {
-    std::cout << "\nSelect sorting order:\n";
-    std::cout << "1. Shuffled (random order)\n";
-    std::cout << "2. Ascending order\n";
-    std::cout << "3. Descending order\n";
-    int choice;
-    std::cin >> choice;
-    switch(choice) {
-        case 2: return SortOrder::ASCENDING;
-        case 3: return SortOrder::DESCENDING;
-        default: return SortOrder::SHUFFLED;
-    }
-}
-
-void TestFramework::generateRandomInstances(SortOrder order) {
-    clearInstancesDirectory();
-    for (int i = 0; i < RANDOM_INSTANCES_COUNT; i++) {
-        int cuts = 3 + (i % 5);
-        std::string filename = "instance_" + std::to_string(i + 1) + ".txt";
-        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
-        if (!generator.generateInstance(cuts, fullPath, order)) {
-            std::cout << "Failed to generate instance " << (i + 1) << std::endl;
+    std::cout << "Running debug solver for instance " << filename << std::endl;
+    std::cout << "Total length: " << totalLength << std::endl;
+    std::cout << "Number of distances: " << distances.size() << std::endl;
+    
+    auto startTime = std::chrono::steady_clock::now();
+    auto solution = solver.solve();
+    auto endTime = std::chrono::steady_clock::now();
+    
+    auto timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    
+    // Wyświetl wyniki i statystyki
+    displayDebugStatistics(solver.getStatistics());
+    
+    if (solution) {
+        std::cout << "\nSolution found!" << std::endl;
+        std::cout << "Execution time: " << timeMs << "ms" << std::endl;
+        std::cout << "Solution: ";
+        for (const auto& pos : *solution) {
+            std::cout << pos << " ";
         }
-    }
-    std::cout << "Generated " << RANDOM_INSTANCES_COUNT << " random instances in 'instances' directory.\n";
-}
-
-void TestFramework::generateInstancesRange(int maxCuts) {
-    if (!isValidNumberOfCuts(maxCuts)) {
-        std::cout << "Invalid number of cuts. Minimum allowed is " << MIN_CUTS << std::endl;
-        return;
-    }
-
-    clearInstancesDirectory();
-    int generatedCount = 0;
-
-    for (int cuts = MIN_CUTS; cuts <= maxCuts; cuts++) {
-        std::string filename = "instance_" + std::to_string(cuts) + ".txt";
-        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
+        std::cout << std::endl;
         
-        std::cout << "Generating instance with " << cuts << " cuts... ";
-        if (generator.generateInstance(cuts, fullPath)) {
-            std::cout << "SUCCESS\n";
-            generatedCount++;
+        if (validateSolution(*solution, distances)) {
+            std::cout << "Solution validation: PASSED" << std::endl;
         } else {
-            std::cout << "FAILED\n";
+            std::cout << "Solution validation: FAILED" << std::endl;
         }
+    } else {
+        std::cout << "\nNo solution found!" << std::endl;
+        std::cout << "Execution time: " << timeMs << "ms" << std::endl;
     }
-
-    std::cout << "\nGeneration complete:\n";
-    std::cout << "Successfully generated: " << generatedCount << " instances\n";
-    std::cout << "Failed generations: " << (maxCuts - MIN_CUTS + 1 - generatedCount) << std::endl;
+    
+    return true;
 }
 
-void TestFramework::generateInstancesRange(int maxCuts, SortOrder order) {
-    if (!isValidNumberOfCuts(maxCuts)) {
-        std::cout << "Invalid number of cuts. Minimum allowed is " << MIN_CUTS << std::endl;
-        return;
-    }
-
-    clearInstancesDirectory();
-    int generatedCount = 0;
-
-    for (int cuts = MIN_CUTS; cuts <= maxCuts; cuts++) {
-        std::string filename = "instance_" + std::to_string(cuts) + ".txt";
-        std::string fullPath = getFullPath(INSTANCES_DIR, filename);
-
-        std::cout << "Generating instance with " << cuts << " cuts... ";
-        if (generator.generateInstance(cuts, fullPath, order)) {
-            std::cout << "SUCCESS\n";
-            generatedCount++;
-        } else {
-            std::cout << "FAILED\n";
+void TestFramework::displayDebugStatistics(const DebugMapSolver::Statistics& stats) {
+    std::cout << "\nDebug Statistics:" << std::endl;
+    std::cout << "Total paths explored: " << stats.totalPaths << std::endl;
+    std::cout << "Processed paths: " << stats.processedPaths << std::endl;
+    std::cout << "Search time: " << stats.searchTimeMs << "ms" << std::endl;
+    std::cout << "Solution found: " << (stats.solutionFound ? "Yes" : "No") << std::endl;
+    
+    if (!stats.inputDistances.empty()) {
+        std::cout << "\nInput distances: ";
+        for (const auto& dist : stats.inputDistances) {
+            std::cout << dist << " ";
         }
+        std::cout << std::endl;
     }
-
-    std::cout << "\nGeneration complete:\n";
-    std::cout << "Successfully generated: " << generatedCount << " instances\n";
-    std::cout << "Failed generations: " << (maxCuts - MIN_CUTS + 1 - generatedCount) << std::endl;
-}
-
-bool TestFramework::isValidNumberOfCuts(int cuts) const {
-    return cuts >= MIN_CUTS;
-}
-
-TestFramework::VerificationResult TestFramework::verifyInstance(const std::vector<int>& distances) {
-    if (distances.empty()) {
-        return {false, "Empty instance"};
-    }
-    int expectedCuts = calculateRequiredCuts((int)distances.size());
-    int expectedSize = (expectedCuts + 2) * (expectedCuts + 1) / 2;
-    if (!verifyInputSize(distances, expectedSize)) {
-        return {false, "Invalid input size"};
-    }
-    if (!verifyInputValues(distances)) {
-        return {false, "Invalid distance values"};
-    }
-    if (!checkCutsPossibility((int)distances.size())) {
-        return {false, "No valid number of cuts possible for this multiset size"};
-    }
-    return {true, "Instance verified successfully"};
 }

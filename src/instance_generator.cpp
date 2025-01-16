@@ -5,37 +5,15 @@
 
 namespace fs = std::filesystem;
 
-void InstanceGenerator::createRunDirectory() {
-    auto now = std::time(nullptr);
-    auto local_time = *std::localtime(&now);
-    
-    std::ostringstream oss;
-    oss << "run_" 
-        << std::setfill('0') << std::setw(2) << local_time.tm_hour
-        << std::setfill('0') << std::setw(2) << local_time.tm_min;
-    
-    runDirectory = oss.str();
-    
-    fs::create_directory(runDirectory);
-    std::cout << "Utworzono katalog: " << runDirectory << "\n";
-}
-
 std::string InstanceGenerator::getFullPath(const std::string& filename) const {
     if (filename.rfind("./", 0) == 0 || filename.rfind("../", 0) == 0) {
         return filename;
     }
-    if (runDirectory.empty()) {
-        return filename;
-    }
-    return (fs::path(runDirectory) / filename).string();
+    return (fs::path(outputDirectory) / filename).string();
 }
 
-bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, SortOrder order) {
-    // Jeśli runDirectory puste -> stwórz
-    if (runDirectory.empty()) {
-        createRunDirectory();
-    }
 
+bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, SortOrder order) {
     RestrictionMap newMap(cuts);
     if(!newMap.generateMap(cuts)) {
         return false;
@@ -52,17 +30,22 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
         break;
     case SortOrder::SHUFFLED:
     default: {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::shuffle(distances.begin(), distances.end(), gen);
-        break;
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::shuffle(distances.begin(), distances.end(), gen);
+            break;
     }
+    }
+    
+    // Ensure the output directory exists
+    if (!fs::exists(outputDirectory)) {
+        fs::create_directories(outputDirectory);
     }
     
     std::string fullPath = getFullPath(filename);
     std::ofstream file(fullPath);
     if(!file.is_open()) {
-        std::cout << "Nie mozna otworzyc pliku: " << fullPath << "\n";
+        std::cerr << "Cannot open file: " << fullPath << "\n";
         return false;
     }
     
@@ -99,10 +82,11 @@ bool InstanceGenerator::generateInstance(int cuts, const std::string& filename, 
 
 std::vector<int> InstanceGenerator::loadInstance(const std::string& filename) {
     std::vector<int> distances;
-    std::ifstream file(getFullPath(filename));
+    std::string fullPath = getFullPath(filename);
+    std::ifstream file(fullPath);
     
     if (!file.is_open()) {
-        std::cout << "Nie można otworzyć pliku: " << getFullPath(filename) << "\n";
+        std::cout << "Cannot open file: " << fullPath << "\n";
         return distances;
     }
     

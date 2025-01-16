@@ -12,12 +12,10 @@
 #include <limits>
 #include <string>
 #include <sstream>
+#include <unordered_set>
 
 #include "bbb_algorithm.h"
 
-/**
- * Struktura MultisetD - do przechowywania wielokrotnego zbioru liczb (D).
- */
 class MultisetD {
 private:
     std::map<int,int> counts;
@@ -59,21 +57,12 @@ public:
     }
 };
 
-/**
- * BBb2Algorithm: 
- * 1) Buduje rozwiązania metodą BFS do pewnego poziomu alpha (buildToAlpha)
- * 2) Następnie każdy węzeł z tego poziomu alpha jest przekazywany do "drugiego" 
- *    algorytmu BBb (solvePartial), by dokończyć budowę zbioru X.
- */
 class BBb2Algorithm {
 public:
-    BBb2Algorithm() : debugMode(true) {}
-
+    BBb2Algorithm() {}
     std::optional<std::vector<int>> solve(std::vector<int> D);
-    void setDebugMode(bool enable) { debugMode = enable; }
 
 private:
-    bool debugMode;
     BBbAlgorithm bbbSolver;            
     std::vector<int> originalDistances;
 
@@ -84,53 +73,20 @@ private:
             : D(std::move(d)), X(std::move(x)) {}
     };
 
-    // Główna faza BFS do poziomu alpha
     void buildToAlpha(std::vector<AlphaNode>& alphaNodes,
                       const std::vector<int>& initialD,
                       const std::vector<int>& initialX,
                       int alpha);
 
-    // Druga faza - z każdego węzła alpha odpalamy bbbSolver w trybie "Partial"
     std::optional<std::vector<int>> processAlphaNode(const AlphaNode& node);
 
-    // Sprawdza, czy X generuje taki sam multizbiór odległości co originalDistances
     bool isValidSolution(const std::vector<int>& X,
                          const std::vector<int>& origD) const;
 
-    // Usuwa z multizbioru D wartości |y - x| dla x w X (o ile wszystkie się da)
     bool removeDelta(MultisetD &mD, int y, const std::vector<int>& X);
 
-    // Funkcje pomocnicze
     int calculateN(int setSize) const;
     int findAlphaM(int N) const;
-
-    void debugPrint(const std::string& msg) const {
-        if(debugMode){
-            std::cout << "[BBb2 debug] " << msg << std::endl;
-        }
-    }
-    std::string toStr(const std::vector<int>& vec) const {
-        std::stringstream ss;
-        ss << "{";
-        for(size_t i=0;i<vec.size();i++){
-            ss<<vec[i]; 
-            if(i+1<vec.size()) ss<<",";
-        }
-        ss<<"}";
-        return ss.str();
-    }
-    std::string toStr(const MultisetD& mD) const {
-        auto dv = mD.toVector();
-        std::sort(dv.begin(), dv.end());
-        std::stringstream ss;
-        ss<<"[";
-        for(size_t i=0;i<dv.size();i++){
-            ss<<dv[i];
-            if(i+1<dv.size()) ss<<",";
-        }
-        ss<<"]";
-        return ss.str();
-    }
 };
 
 #endif // BBB2_ALGORITHM_H

@@ -28,9 +28,8 @@ enum class SortOrder {
 class InstanceGenerator {
 private:
     std::map<std::string, RestrictionMap> savedMaps;
-    std::string runDirectory;
+    std::string outputDirectory;
     
-    void createRunDirectory();
     std::string getFullPath(const std::string& filename) const;
 
 public:
@@ -38,7 +37,9 @@ public:
     bool generateInstance(int cuts, const std::string& filename, SortOrder order = SortOrder::SHUFFLED);
     std::vector<int> loadInstance(const std::string& filename);
     bool verifyInstance(const std::string& filename);
-    std::string getRunDirectory() const { return runDirectory; }
+    void setOutputDirectory(const std::string& dir) { outputDirectory = dir; }
+    std::string getOutputDirectory() const { return outputDirectory; }
+
 };
 
 #endif //INSTANCE_GENERATOR_H
