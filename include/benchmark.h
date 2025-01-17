@@ -1,9 +1,7 @@
-//
-// Created by konrad_guest on 14/01/2025.
-//
 #ifndef BENCHMARK_H
 #define BENCHMARK_H
 
+#include "global_paths.h"
 #include "instance_generator.h"
 #include "map_solver.h"
 #include "algorithms/bbd_algorithm.h"
@@ -22,6 +20,12 @@
 #include <optional>
 #include <sstream>
 
+/**
+ * The Benchmark class handles:
+ * - Running standardized tests (standard, duplicates, etc.)
+ * - Managing multiple algorithms
+ * - Saving results into CSVs
+ */
 class Benchmark {
 public:
     enum class Algorithm {
@@ -53,11 +57,11 @@ public:
     };
 
     struct BenchmarkConfig {
-        std::vector<int> standardSizes;     // Sizes for standard tests
-        std::vector<int> specialCaseSizes;  // Sizes for special cases
-        int repeatCount;                    // Number of repetitions for each test
-        int specialCaseRepetitions;         // Number of repetitions for special cases
-        BenchmarkMode mode;                 // Mode of operation (all vs fast algorithms)
+        std::vector<int> standardSizes;
+        std::vector<int> specialCaseSizes;
+        int repeatCount;
+        int specialCaseRepetitions;
+        BenchmarkMode mode;
     };
 
     struct BenchmarkSolution {
@@ -90,8 +94,6 @@ public:
     void runFastAlgorithmsBenchmark();
 
 private:
-    static const std::string BENCHMARK_DIR;
-    static const std::string TEMP_FILE;
     BenchmarkConfig config;
     std::vector<BenchmarkResult> results;
     InstanceGenerator instanceGenerator;
@@ -101,23 +103,24 @@ private:
 
     void cleanupTempFiles();
     void createBenchmarkDirectory();
-    double measureAlgorithmTime(Algorithm algo, int size);
+    double measureAlgorithmTime(Algorithm algo, int sizeVal);
     std::string getAlgorithmName(Algorithm algo) const;
-    void prepareInstance(int size, TestType type = TestType::STANDARD);
+    void prepareInstance(int sizeVal, TestType type = TestType::STANDARD);
+    void createDirectoryStructure();
 
-    std::vector<int> generateDuplicatesInstance(int size);
-    std::vector<int> generatePatternsInstance(int size);
-    std::vector<int> generateExtremeInstance(int size);
+    std::vector<int> generateDuplicatesInstance(int sizeVal);
+    std::vector<int> generatePatternsInstance(int sizeVal);
+    std::vector<int> generateExtremeInstance(int sizeVal);
     std::string getTestTypeName(TestType type) const;
     std::vector<Algorithm> getAlgorithmsForMode(BenchmarkMode mode) const;
 
-    // Algorithm implementations
+    // Algorithm-specific calls
     void runBasicMapSolver(const std::vector<int>& distances, int totalLength);
     void runBBdAlgorithm(const std::vector<int>& distances);
     void runBBbAlgorithm(const std::vector<int>& distances);
     void runBBb2Algorithm(const std::vector<int>& distances);
 
-private:
+    // Validation & references
     std::vector<ValidatedResult> validatedResults;
     std::map<std::string, std::vector<int>> referenceResults;
 
@@ -128,4 +131,4 @@ private:
     std::string generateInstanceHash(const std::vector<int>& distances);
 };
 
-#endif //BENCHMARK_H
+#endif // BENCHMARK_H

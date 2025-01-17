@@ -1,27 +1,34 @@
-//
-// Created by konrad_guest on 14/01/2025.
-//
 #include "../include/benchmark.h"
 #include <iostream>
 #include <algorithm>
 #include <numeric>
 #include <limits>
 
-const std::string Benchmark::BENCHMARK_DIR = "benchmark";
-const std::string Benchmark::TEMP_FILE = "temp_instance.txt";
+namespace fs = std::filesystem;
 
 Benchmark::Benchmark() {
+    // Create global directories once
+    GlobalPaths::createGlobalDirectories();
+
     // Default configuration
-    config.standardSizes = {10, 20, 50, 100, 200, 300, 400};
-    config.specialCaseSizes = {100};
-    config.repeatCount = 5;
-    config.specialCaseRepetitions = 100;
-    config.mode = BenchmarkMode::ALL_ALGORITHMS;
-    createBenchmarkDirectory();
+    config.standardSizes         = {10, 20, 50, 100};
+    config.specialCaseSizes      = {100};
+    config.repeatCount           = 5;
+    config.specialCaseRepetitions= 100;
+    config.mode                  = BenchmarkMode::ALL_ALGORITHMS;
+
+    createDirectoryStructure();
 }
 
 Benchmark::~Benchmark() {
     cleanupTempFiles();
+}
+
+void Benchmark::createDirectoryStructure() {
+    // Make sure our "benchmark" subdir is available
+    if (!fs::exists(GlobalPaths::BENCHMARK_DIR)) {
+        fs::create_directories(GlobalPaths::BENCHMARK_DIR);
+    }
 }
 
 void Benchmark::setBenchmarkConfig(const BenchmarkConfig& newConfig) {
@@ -29,21 +36,22 @@ void Benchmark::setBenchmarkConfig(const BenchmarkConfig& newConfig) {
 }
 
 void Benchmark::createBenchmarkDirectory() {
-    namespace fs = std::filesystem;
-    if (!fs::exists(BENCHMARK_DIR)) {
-        fs::create_directory(BENCHMARK_DIR);
+    if (!fs::exists(GlobalPaths::BENCHMARK_DIR)) {
+        fs::create_directories(GlobalPaths::BENCHMARK_DIR);
     }
 }
 
 void Benchmark::cleanupTempFiles() {
-    namespace fs = std::filesystem;
-    if (fs::exists(TEMP_FILE)) {
-        fs::remove(TEMP_FILE);
+    // Remove the main temp file if it exists
+    if (fs::exists(GlobalPaths::TEMP_INSTANCE_FILE)) {
+        fs::remove(GlobalPaths::TEMP_INSTANCE_FILE);
     }
-    // Remove all temporary files in the benchmark directory
-    for (const auto& entry : fs::directory_iterator(BENCHMARK_DIR)) {
-        if (entry.path().filename().string().starts_with("benchmark_instance_")) {
-            fs::remove(entry.path());
+    // Also remove any leftover "benchmark_instance_*" if you used them
+    if (fs::exists(GlobalPaths::BENCHMARK_DIR)) {
+        for (const auto& entry : fs::directory_iterator(GlobalPaths::BENCHMARK_DIR)) {
+            if (entry.path().filename().string().rfind("benchmark_instance_", 0) == 0) {
+                fs::remove(entry.path());
+            }
         }
     }
 }
@@ -72,17 +80,16 @@ void Benchmark::runBenchmark() {
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::cout << "Invalid value. Enter a positive integer: ";
         }
-        
         config.standardSizes.clear();
         std::cout << "Enter " << count << " sizes:\n";
         for (int i = 0; i < count; ++i) {
-            int size;
-            while (!(std::cin >> size) || size <= 0) {
+            int sizeVal;
+            while (!(std::cin >> sizeVal) || sizeVal <= 0) {
                 std::cin.clear();
                 std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                std::cout << "Invalid value. Enter a positive integer: ";
+                std::cout << "Invalid size. Enter a positive integer: ";
             }
-            config.standardSizes.push_back(size);
+            config.standardSizes.push_back(sizeVal);
         }
         runBenchmark();
         return;
@@ -95,17 +102,16 @@ void Benchmark::runBenchmark() {
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::cout << "Invalid value. Enter a positive integer: ";
         }
-        
         config.specialCaseSizes.clear();
         std::cout << "Enter " << count << " sizes:\n";
         for (int i = 0; i < count; ++i) {
-            int size;
-            while (!(std::cin >> size) || size <= 0) {
+            int sizeVal;
+            while (!(std::cin >> sizeVal) || sizeVal <= 0) {
                 std::cin.clear();
                 std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                std::cout << "Invalid value. Enter a positive integer: ";
+                std::cout << "Invalid size. Enter a positive integer: ";
             }
-            config.specialCaseSizes.push_back(size);
+            config.specialCaseSizes.push_back(sizeVal);
         }
         runBenchmark();
         return;
@@ -117,7 +123,6 @@ void Benchmark::runBenchmark() {
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::cout << "Invalid value. Enter a positive integer: ";
         }
-
         std::cout << "Enter the number of repetitions for special cases: ";
         while (!(std::cin >> config.specialCaseRepetitions) || config.specialCaseRepetitions <= 0) {
             std::cin.clear();
@@ -157,75 +162,30 @@ void Benchmark::runBenchmark() {
         runComprehensiveBenchmark();
     }
 
+    // Save final results
     auto now = std::chrono::system_clock::now();
     auto timestamp = std::chrono::system_clock::to_time_t(now);
-    std::string filename = "benchmark_results_" + std::to_string(timestamp) + ".csv";
-    saveResults(filename);
+    std::string outName = "benchmark_results_" + std::to_string(timestamp) + ".csv";
+    saveResults(outName);
 
     cleanupTempFiles();
 }
 
-void Benchmark::runFastAlgorithmsBenchmark() {
-    std::cout << "Running benchmark for fast algorithms (BBd, BBb, BBb2)...\n";
-    
-    auto algorithms = getAlgorithmsForMode(BenchmarkMode::FAST_ALGORITHMS_ONLY);
-    
-    for (int size : config.standardSizes) {
-        std::cout << "\nTesting size n=" << size << "\n";
-        
-        for (int i = 0; i < config.repeatCount; ++i) {
-            prepareInstance(size, TestType::STANDARD);
-            std::vector<int> distances = instanceGenerator.loadInstance(TEMP_FILE);
-
-            for (Algorithm algo : algorithms) {
-                auto benchResult = runAlgorithmWithValidation(algo, distances);
-
-                BenchmarkResult result = {
-                    size,
-                    benchResult.executionTimeMs,
-                    algo,
-                    TestType::STANDARD,
-                    "Test type: Standard, size: " + std::to_string(size),
-                    benchResult.found
-                };
-                results.push_back(result);
-
-                std::cout << getAlgorithmName(algo) << ": " 
-                         << benchResult.executionTimeMs << "ms "
-                         << (benchResult.found ? "(solution found)" : "(no solution)") << "\n";
-            }
-        }
-    }
-}
-
-std::vector<Benchmark::Algorithm> Benchmark::getAlgorithmsForMode(BenchmarkMode mode) const {
-    std::vector<Algorithm> algorithms;
-    if (mode == BenchmarkMode::ALL_ALGORITHMS) {
-        algorithms = {Algorithm::BASIC_MAP, Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
-    } else {
-        algorithms = {Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
-    }
-    return algorithms;
-}
-
 void Benchmark::runSingleAlgorithmBenchmark(Algorithm algo) {
     std::cout << "\nRunning benchmark for algorithm: " << getAlgorithmName(algo) << "\n";
-
-    for (int size : config.standardSizes) {
-        std::cout << "\nTesting size n=" << size << "\n";
-        
+    for (int sizeVal : config.standardSizes) {
+        std::cout << "\nTesting size n=" << sizeVal << "\n";
         for (int i = 0; i < config.repeatCount; ++i) {
-            prepareInstance(size, TestType::STANDARD);
-            std::vector<int> distances = instanceGenerator.loadInstance(TEMP_FILE);
-
+            prepareInstance(sizeVal, TestType::STANDARD);
+            std::vector<int> distances = instanceGenerator.loadInstance(GlobalPaths::TEMP_INSTANCE_FILE.string());
             auto benchResult = runAlgorithmWithValidation(algo, distances);
 
-            BenchmarkResult result = {
-                size,
+            BenchmarkResult result {
+                sizeVal,
                 benchResult.executionTimeMs,
                 algo,
                 TestType::STANDARD,
-                "Test type: Standard, size: " + std::to_string(size),
+                "Test type: Standard, size: " + std::to_string(sizeVal),
                 benchResult.found
             };
             results.push_back(result);
@@ -235,29 +195,96 @@ void Benchmark::runSingleAlgorithmBenchmark(Algorithm algo) {
                 validateSolution(benchResult.solution, distances),
                 benchResult.solution
             );
+        }
+    }
+}
 
-            std::string instanceHash = generateInstanceHash(distances);
-            auto refIt = referenceResults.find(instanceHash);
-            if (refIt != referenceResults.end() && benchResult.found) {
-                bool matchesReference = compareSolutions(benchResult.solution, refIt->second);
-                std::cout << "Solution " << (matchesReference ? "matches" : "differs from")
-                          << " reference solution\n";
+void Benchmark::runFastAlgorithmsBenchmark() {
+    std::cout << "Running benchmark for fast algorithms (BBd, BBb, BBb2)...\n";
+    auto algorithms = getAlgorithmsForMode(BenchmarkMode::FAST_ALGORITHMS_ONLY);
+
+    for (int sizeVal : config.standardSizes) {
+        std::cout << "\nTesting size n=" << sizeVal << "\n";
+        for (int i = 0; i < config.repeatCount; ++i) {
+            prepareInstance(sizeVal, TestType::STANDARD);
+            std::vector<int> distances = instanceGenerator.loadInstance(GlobalPaths::TEMP_INSTANCE_FILE.string());
+
+            for (Algorithm algo : algorithms) {
+                auto benchResult = runAlgorithmWithValidation(algo, distances);
+                BenchmarkResult result {
+                    sizeVal,
+                    benchResult.executionTimeMs,
+                    algo,
+                    TestType::STANDARD,
+                    "Test type: Standard, size: " + std::to_string(sizeVal),
+                    benchResult.found
+                };
+                results.push_back(result);
+
+                std::cout << getAlgorithmName(algo) << ": "
+                          << benchResult.executionTimeMs << "ms "
+                          << (benchResult.found ? "(solution found)" : "(no solution)") << "\n";
             }
         }
     }
 }
 
+std::vector<Benchmark::Algorithm> Benchmark::getAlgorithmsForMode(BenchmarkMode mode) const {
+    if (mode == BenchmarkMode::ALL_ALGORITHMS) {
+        return {Algorithm::BASIC_MAP, Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
+    } else {
+        // FAST_ALGORITHMS_ONLY
+        return {Algorithm::BBD, Algorithm::BBB, Algorithm::BBB2};
+    }
+}
+
+void Benchmark::runTestTypeBenchmark(TestType type, const std::vector<int>& sizes) {
+    std::cout << "\nRunning benchmark for test type: " << getTestTypeName(type) << "\n";
+    for (int sizeVal : sizes) {
+        std::cout << "\nTesting size n=" << sizeVal << "\n";
+        for (int i = 0; i < config.repeatCount; ++i) {
+            prepareInstance(sizeVal, type);
+            for (int algoType = 0; algoType < 4; ++algoType) {
+                Algorithm algo = static_cast<Algorithm>(algoType);
+                double time     = measureAlgorithmTime(algo, sizeVal);
+                results.push_back({
+                    sizeVal,
+                    time,
+                    algo,
+                    type,
+                    "Test type: " + getTestTypeName(type) + ", size: " + std::to_string(sizeVal),
+                    (time >= 0)
+                });
+            }
+        }
+    }
+}
+
+void Benchmark::runComprehensiveBenchmark() {
+    std::cout << "Starting comprehensive benchmark...\n";
+    runTestTypeBenchmark(TestType::STANDARD, config.standardSizes);
+
+    int originalRepeatCount = config.repeatCount;
+    config.repeatCount      = config.specialCaseRepetitions;
+    for (int sizeVal : config.specialCaseSizes) {
+        runTestTypeBenchmark(TestType::DUPLICATES, {sizeVal});
+        runTestTypeBenchmark(TestType::PATTERNS,   {sizeVal});
+        runTestTypeBenchmark(TestType::EXTREME,    {sizeVal});
+    }
+    config.repeatCount = originalRepeatCount;
+
+    std::cout << "\nBenchmark completed.\n";
+}
+
 void Benchmark::saveResults(const std::string& filename) {
-    std::string fullPath = BENCHMARK_DIR + "/" + filename;
+    createDirectoryStructure();
+    fs::path fullPath = GlobalPaths::BENCHMARK_DIR / filename;
     std::ofstream file(fullPath);
-    
     if (!file.is_open()) {
         std::cerr << "Cannot open file: " << fullPath << "\n";
         return;
     }
-    
     file << "algorithm,test_type,size,time_ms,success,description\n";
-    
     for (const auto& result : results) {
         file << getAlgorithmName(result.algorithmType) << ","
              << getTestTypeName(result.testType) << ","
@@ -266,122 +293,64 @@ void Benchmark::saveResults(const std::string& filename) {
              << (result.successful ? "true" : "false") << ","
              << "\"" << result.description << "\"\n";
     }
-    
-    std::cout << "\nResults saved to file: " << fullPath << "\n";
+    file.close();
+    std::cout << "\nResults saved to: " << fullPath.string() << "\n";
 }
 
-void Benchmark::runTestTypeBenchmark(TestType type, const std::vector<int>& sizes) {
-    std::cout << "\nRunning benchmark for test type: " << getTestTypeName(type) << "\n";
-
-    for (int size : sizes) {
-        std::cout << "\nTesting size n=" << size << "\n";
-
-        for (int i = 0; i < config.repeatCount; ++i) {
-            prepareInstance(size, type);
-
-            for (int algoType = 0; algoType < 4; ++algoType) {
-                Algorithm algo = static_cast<Algorithm>(algoType);
-                
-                double time = measureAlgorithmTime(algo, size);
-
-                results.push_back({
-                    size,
-                    time,
-                    algo,
-                    type,
-                    "Test type: " + getTestTypeName(type) + ", size: " + std::to_string(size),
-                    true
-                });
-            }
-        }
-    }
-}
-
-double Benchmark::measureAlgorithmTime(Algorithm algo, int size) {
-    std::vector<int> distances = instanceGenerator.loadInstance(TEMP_FILE);
-    int totalLength = size * 2; // This is just an example assumption
-
-    auto start = std::chrono::high_resolution_clock::now();
-
+double Benchmark::measureAlgorithmTime(Algorithm algo, int sizeVal) {
+    std::vector<int> distances = instanceGenerator.loadInstance(GlobalPaths::TEMP_INSTANCE_FILE.string());
+    int totalLength = sizeVal * 2; // example assumption
+    auto start      = std::chrono::high_resolution_clock::now();
     try {
         switch (algo) {
-        case Algorithm::BASIC_MAP:
-            runBasicMapSolver(distances, totalLength);
-            break;
-        case Algorithm::BBD:
-            runBBdAlgorithm(distances);
-            break;
-        case Algorithm::BBB:
-            runBBbAlgorithm(distances);
-            break;
-        case Algorithm::BBB2:
-            runBBb2Algorithm(distances);
-            break;
+            case Algorithm::BASIC_MAP:
+                runBasicMapSolver(distances, totalLength);
+                break;
+            case Algorithm::BBD:
+                runBBdAlgorithm(distances);
+                break;
+            case Algorithm::BBB:
+                runBBbAlgorithm(distances);
+                break;
+            case Algorithm::BBB2:
+                runBBb2Algorithm(distances);
+                break;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error during algorithm execution: " << e.what() << std::endl;
         return -1.0;
     }
-
     auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    return duration.count();
-}
-
-void Benchmark::runComprehensiveBenchmark() {
-    std::cout << "Starting comprehensive benchmark...\n";
-
-    runTestTypeBenchmark(TestType::STANDARD, config.standardSizes);
-
-    int originalRepeatCount = config.repeatCount;
-    config.repeatCount = config.specialCaseRepetitions;
-
-    for (int size : config.specialCaseSizes) {
-        runTestTypeBenchmark(TestType::DUPLICATES, {size});
-        runTestTypeBenchmark(TestType::PATTERNS, {size});
-        runTestTypeBenchmark(TestType::EXTREME, {size});
-    }
-
-    config.repeatCount = originalRepeatCount;
-
-    std::cout << "\nBenchmark completed.\n";
+    return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
 
 Benchmark::BenchmarkSolution Benchmark::runAlgorithmWithValidation(Algorithm algo, const std::vector<int>& distances) {
     auto start = std::chrono::high_resolution_clock::now();
     std::optional<std::vector<int>> solution;
-    
     try {
         switch (algo) {
-        case Algorithm::BASIC_MAP: {
-                MapSolver solver(distances, distances.size() * 2);
+            case Algorithm::BASIC_MAP: {
+                MapSolver solver(distances, static_cast<int>(distances.size() * 2));
                 solution = solver.solve();
                 break;
-        }
-        case Algorithm::BBD:
-            solution = BBdAlgorithm().solve(distances);
-            break;
-        case Algorithm::BBB:
-            solution = BBbAlgorithm().solve(distances);
-            break;
-        case Algorithm::BBB2:
-            solution = BBb2Algorithm().solve(distances);
-            break;
+            }
+            case Algorithm::BBD:
+                solution = BBdAlgorithm().solve(distances);
+                break;
+            case Algorithm::BBB:
+                solution = BBbAlgorithm().solve(distances);
+                break;
+            case Algorithm::BBB2:
+                solution = BBb2Algorithm().solve(distances);
+                break;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error during algorithm execution: " << e.what() << std::endl;
         return BenchmarkSolution();
     }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    return BenchmarkSolution(
-        solution.value_or(std::vector<int>()),
-        solution.has_value(),
-        duration.count()
-    );
+    auto end      = std::chrono::high_resolution_clock::now();
+    double elapsed= std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    return BenchmarkSolution(solution.value_or(std::vector<int>()), solution.has_value(), elapsed);
 }
 
 std::string Benchmark::getAlgorithmName(Algorithm algo) const {
@@ -394,36 +363,34 @@ std::string Benchmark::getAlgorithmName(Algorithm algo) const {
     }
 }
 
-void Benchmark::prepareInstance(int size, TestType type) {
+void Benchmark::prepareInstance(int sizeVal, TestType type) {
+    // Overwrite the same temp file each time
     switch (type) {
         case TestType::STANDARD:
-            instanceGenerator.generateInstance(size, TEMP_FILE, SortOrder::SHUFFLED);
+            instanceGenerator.generateInstance(sizeVal, GlobalPaths::TEMP_INSTANCE_FILE.string(), SortOrder::SHUFFLED);
             break;
         case TestType::DUPLICATES: {
-            auto distances = generateDuplicatesInstance(size);
-            std::ofstream file(TEMP_FILE);
+            auto distances = generateDuplicatesInstance(sizeVal);
+            std::ofstream file(GlobalPaths::TEMP_INSTANCE_FILE);
             for (int d : distances) {
                 file << d << " ";
             }
-            file.close();
             break;
         }
         case TestType::PATTERNS: {
-            auto distances = generatePatternsInstance(size);
-            std::ofstream file(TEMP_FILE);
+            auto distances = generatePatternsInstance(sizeVal);
+            std::ofstream file(GlobalPaths::TEMP_INSTANCE_FILE);
             for (int d : distances) {
                 file << d << " ";
             }
-            file.close();
             break;
         }
         case TestType::EXTREME: {
-            auto distances = generateExtremeInstance(size);
-            std::ofstream file(TEMP_FILE);
+            auto distances = generateExtremeInstance(sizeVal);
+            std::ofstream file(GlobalPaths::TEMP_INSTANCE_FILE);
             for (int d : distances) {
                 file << d << " ";
             }
-            file.close();
             break;
         }
     }
@@ -439,70 +406,57 @@ std::string Benchmark::getTestTypeName(TestType type) const {
     }
 }
 
-std::vector<int> Benchmark::generateDuplicatesInstance(int size) {
+std::vector<int> Benchmark::generateDuplicatesInstance(int sizeVal) {
     std::vector<int> distances;
-    distances.reserve(size * (size - 1) / 2);
-
+    distances.reserve(sizeVal * (sizeVal - 1) / 2);
     int baseDistance = 10;
-    for (int i = 0; i < size / 2; ++i) {
+    for (int i = 0; i < sizeVal / 2; ++i) {
         distances.push_back(baseDistance);
         distances.push_back(baseDistance);
         baseDistance += 10;
     }
-
-    while ((int)distances.size() < size * (size - 1) / 2) {
+    while ((int)distances.size() < sizeVal * (sizeVal - 1) / 2) {
         distances.push_back(baseDistance++);
     }
-
     std::random_device rd;
     std::mt19937 gen(rd());
     std::shuffle(distances.begin(), distances.end(), gen);
-
     return distances;
 }
 
-std::vector<int> Benchmark::generatePatternsInstance(int size) {
+std::vector<int> Benchmark::generatePatternsInstance(int sizeVal) {
     std::vector<int> points;
-    points.reserve(size);
-
-    int spacing = (size == 1) ? 1 : size / (size - 1);
-    for (int i = 0; i < size; ++i) {
+    points.reserve(sizeVal);
+    int spacing = (sizeVal == 1) ? 1 : (sizeVal / (sizeVal - 1));
+    for (int i = 0; i < sizeVal; ++i) {
         points.push_back(i * spacing);
     }
-
     std::vector<int> distances;
-    distances.reserve(size * (size - 1) / 2);
-
-    for (int i = 0; i < size; ++i) {
-        for (int j = i + 1; j < size; ++j) {
+    distances.reserve(sizeVal * (sizeVal - 1) / 2);
+    for (int i = 0; i < sizeVal; ++i) {
+        for (int j = i + 1; j < sizeVal; ++j) {
             distances.push_back(points[j] - points[i]);
         }
     }
-
     std::random_device rd;
     std::mt19937 gen(rd());
     std::shuffle(distances.begin(), distances.end(), gen);
-
     return distances;
 }
 
-std::vector<int> Benchmark::generateExtremeInstance(int size) {
+std::vector<int> Benchmark::generateExtremeInstance(int sizeVal) {
     std::vector<int> distances;
-    distances.reserve(size * (size - 1) / 2);
-
-    for (int i = 0; i < size / 2; ++i) {
+    distances.reserve(sizeVal * (sizeVal - 1) / 2);
+    for (int i = 0; i < sizeVal / 2; ++i) {
         distances.push_back(i + 1);
         distances.push_back(1000 * (i + 1));
     }
-
-    while ((int)distances.size() < size * (size - 1) / 2) {
+    while ((int)distances.size() < sizeVal * (sizeVal - 1) / 2) {
         distances.push_back(100 + (int)distances.size());
     }
-
     std::random_device rd;
     std::mt19937 gen(rd());
     std::shuffle(distances.begin(), distances.end(), gen);
-
     return distances;
 }
 
@@ -528,40 +482,37 @@ void Benchmark::runBBb2Algorithm(const std::vector<int>& distances) {
 
 bool Benchmark::validateSolution(const std::vector<int>& solution, const std::vector<int>& distances) {
     if (solution.empty()) return false;
-    
     std::vector<int> generatedDistances;
     for (size_t i = 0; i < solution.size(); ++i) {
         for (size_t j = i + 1; j < solution.size(); ++j) {
             generatedDistances.push_back(std::abs(solution[j] - solution[i]));
         }
     }
-    
+    std::sort(generatedDistances.begin(), generatedDistances.end());
+
     std::vector<int> sortedOriginal = distances;
-    std::vector<int> sortedGenerated = generatedDistances;
     std::sort(sortedOriginal.begin(), sortedOriginal.end());
-    std::sort(sortedGenerated.begin(), sortedGenerated.end());
-    
-    return (sortedOriginal == sortedGenerated);
+    return (sortedOriginal == generatedDistances);
 }
 
 void Benchmark::loadReferenceResults(const std::string& directory) {
-    namespace fs = std::filesystem;
-    for (const auto& entry : fs::directory_iterator(directory)) {
+    fs::path dirPath(directory);
+    if (!fs::exists(dirPath)) return;
+    for (const auto& entry : fs::directory_iterator(dirPath)) {
         if (entry.path().extension() == ".sol") {
             std::ifstream file(entry.path());
-            std::vector<int> solution;
-            int value;
-            while (file >> value) {
-                solution.push_back(value);
+            std::vector<int> sol;
+            int v;
+            while (file >> v) {
+                sol.push_back(v);
             }
-            referenceResults[entry.path().stem().string()] = solution;
+            referenceResults[entry.path().stem().string()] = sol;
         }
     }
 }
 
 bool Benchmark::compareSolutions(const std::vector<int>& sol1, const std::vector<int>& sol2) {
     if (sol1.size() != sol2.size()) return false;
-    
     std::vector<int> dist1, dist2;
     for (size_t i = 0; i < sol1.size(); ++i) {
         for (size_t j = i + 1; j < sol1.size(); ++j) {
@@ -569,10 +520,8 @@ bool Benchmark::compareSolutions(const std::vector<int>& sol1, const std::vector
             dist2.push_back(std::abs(sol2[j] - sol2[i]));
         }
     }
-    
     std::sort(dist1.begin(), dist1.end());
     std::sort(dist2.begin(), dist2.end());
-    
     return (dist1 == dist2);
 }
 

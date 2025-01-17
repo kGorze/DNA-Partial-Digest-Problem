@@ -7,8 +7,7 @@
 #include <optional>
 
 /**
- * Oryginalny solver PDE (MapSolver) - prosty algorytm
- * z przeszukiwaniem w głąb.
+ * MapSolver - a simplified PDE solver using backtracking or BFS 
  */
 class MapSolver {
 public:
@@ -22,7 +21,7 @@ public:
     };
 
     MapSolver(const std::vector<int>& inputDistances, int length);
-    
+
     std::optional<std::vector<int>> solve();
     std::optional<std::vector<int>> solveWithCondition();
 
@@ -36,7 +35,7 @@ private:
     std::vector<int> currentMap;
     int totalLength;
     int maxind;
-    
+
     uint64_t totalPaths;
     uint64_t processedPaths;
     std::chrono::steady_clock::time_point startTime;

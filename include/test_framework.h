@@ -5,43 +5,38 @@
 #include <string>
 #include <chrono>
 #include <optional>
+#include <filesystem>
+
 #include "instance_generator.h"
 #include "map_solver.h"
 #include "benchmark.h"
 #include "debug_map_solver.h"
-
 #include "algorithms/bbb_algorithm.h"
 #include "algorithms/bbb2_algorithm.h"
 #include "algorithms/bbd_algorithm.h"
-/**
- * Enhanced TestFramework class with consolidated instance management
- * and improved verification using BBb algorithm.
- */
+
 class TestFramework {
 private:
     static const std::chrono::hours MAX_EXECUTION_TIME;
-    static const std::string INSTANCES_DIR;
     static const int MIN_CUTS = 3;
     static const int DEFAULT_RANDOM_COUNT = 10;
-    
+
     InstanceGenerator& generator;
     BBbAlgorithm bbbSolver;
     Benchmark benchmark;
 
-    // Instance generation helpers
-    void clearInstancesDirectory();
+    // Helpers
     bool generateInstance(int cuts, const std::string& filename, SortOrder order);
     SortOrder getSortOrderFromUser();
     bool isValidNumberOfCuts(int cuts) const;
 
-    // Verification helpers
     struct VerificationResult {
         bool isValid;
         std::string message;
         std::optional<std::vector<int>> solution;
         double verificationTimeMs;
     };
-    
+
     VerificationResult verifyInstanceFile(const std::string& filepath);
     bool verifyInputSize(const std::vector<int>& distances, int expectedSize);
     bool verifyInputValues(const std::vector<int>& distances);
@@ -49,16 +44,12 @@ private:
     int calculateRequiredCuts(int multisetSize);
     void testAllInstances(int algorithmChoice);
 
-    
-    // Solution validation
     bool validateSolution(const std::vector<int>& solution, const std::vector<int>& distances);
     std::vector<int> generateDistancesFromSolution(const std::vector<int>& solution);
     bool areMultisetsEqual(std::vector<int> a, std::vector<int> b);
-    
-    // Utility functions
-    std::string getFullPath(const std::string& filename) const;
+
+    std::filesystem::path getFullPath(const std::string& filename) const;
     void listAvailableInstances();
-    void displaySolution(const std::vector<int>& solution, double timeMs);
     void displayVerificationResult(const std::string& filename, const VerificationResult& result);
 
     bool runDebugSolver(const std::string& filename);
@@ -67,7 +58,6 @@ private:
 public:
     explicit TestFramework(InstanceGenerator& gen);
 
-    // Main interface methods
     void runInteractiveMode();
     bool generateRandomInstances(int count = DEFAULT_RANDOM_COUNT, SortOrder order = SortOrder::SHUFFLED);
     bool generateInstancesRange(int maxCuts, SortOrder order = SortOrder::SHUFFLED);

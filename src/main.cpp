@@ -1,24 +1,23 @@
 #include <iostream>
-#include <fstream>
-#include <vector>
-#include <algorithm>
-#include <random>
-#include <string>
-#include <sstream>
-#include <ctime>
-#include <map>
-
 #include "../include/instance_generator.h"
 #include "../include/test_framework.h"
 #include "../include/map_solver.h"
+#include "../include/global_paths.h"
 
 /**
- * Główny punkt wejścia programu.
- * Uruchamia tryb interaktywny TestFramework.
+ * Main entry point:
+ * - Creates the InstanceGenerator
+ * - Creates TestFramework
+ * - Calls the interactive mode
  */
 int main() {
+    // Initialize global directories
+    GlobalPaths::createGlobalDirectories();
+
+    // Create the generator and the framework
     InstanceGenerator generator;
     TestFramework framework(generator);
+
     framework.runInteractiveMode();
     return 0;
 }
