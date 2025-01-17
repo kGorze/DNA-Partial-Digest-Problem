@@ -41,8 +41,8 @@ public:
     std::vector<int> toVector() const {
         std::vector<int> result;
         result.reserve(256);
-        for (auto &kv: counts) {
-            for(int i=0; i<kv.second; i++){
+        for (auto &kv : counts) {
+            for(int i = 0; i < kv.second; i++) {
                 result.push_back(kv.first);
             }
         }
@@ -50,7 +50,7 @@ public:
     }
     static MultisetD fromVector(const std::vector<int>& vec){
         MultisetD ms;
-        for(int x : vec){
+        for (int x : vec) {
             ms.add(x);
         }
         return ms;
@@ -59,11 +59,11 @@ public:
 
 class BBb2Algorithm {
 public:
-    BBb2Algorithm() {}
+    BBb2Algorithm() = default;
     std::optional<std::vector<int>> solve(std::vector<int> D);
 
 private:
-    BBbAlgorithm bbbSolver;            
+    BBbAlgorithm bbbSolver;
     std::vector<int> originalDistances;
 
     struct AlphaNode {
@@ -79,12 +79,8 @@ private:
                       int alpha);
 
     std::optional<std::vector<int>> processAlphaNode(const AlphaNode& node);
-
-    bool isValidSolution(const std::vector<int>& X,
-                         const std::vector<int>& origD) const;
-
+    bool isValidSolution(const std::vector<int>& X, const std::vector<int>& origD) const;
     bool removeDelta(MultisetD &mD, int y, const std::vector<int>& X);
-
     int calculateN(int setSize) const;
     int findAlphaM(int N) const;
 };

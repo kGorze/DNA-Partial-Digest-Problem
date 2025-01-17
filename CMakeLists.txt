@@ -27,6 +27,11 @@ add_executable(zadanie_4
         include/algorithms/bbd_algorithm.h
         include/debug_map_solver.h
         src/debug_map_solver.cpp
+        include/global_paths.h
+        include/data_arrangement_benchmark.h
+        src/data_arrangement_benchmark.cpp
+        include/data_arrangement_analysis.h
+        src/data_arrangement_analysis.cpp
 )
 
 # Set output directories
